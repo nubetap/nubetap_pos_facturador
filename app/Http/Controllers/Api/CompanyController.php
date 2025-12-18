@@ -256,7 +256,22 @@ class CompanyController extends Controller
 
         // Procesar archivos
         if ($request->hasFile('certificado_pem')) {
-            $validatedData['certificado_pem'] = $this->storeFile($request->file('certificado_pem'), 'certificado', 'certificado.pem');
+            // CRÍTICO: Usar RUC para nombre único del certificado (evita sobrescritura)
+            $ruc = $validatedData['ruc'] ?? $request->route('company')?->ruc ?? 'temp_' . time();
+            $extension = $request->file('certificado_pem')->getClientOriginalExtension();
+            $fileName = 'certificado_' . $ruc . '.' . $extension;
+
+            $validatedData['certificado_pem'] = $this->storeFile(
+                $request->file('certificado_pem'),
+                'certificado',
+                $fileName
+            );
+
+            Log::info("Certificado almacenado", [
+                'ruc' => $ruc,
+                'filename' => $fileName,
+                'path' => $validatedData['certificado_pem']
+            ]);
         }
 
         if ($request->hasFile('logo_path')) {

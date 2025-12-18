@@ -1,0 +1,15 @@
+[phases.setup]
+nixPkgs = ['php82', 'php82Packages.composer', 'nodejs_20']
+
+[phases.install]
+cmds = [
+    'composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist',
+    'npm ci --production=false',
+    'npm run build'
+]
+
+[phases.build]
+cmds = ['echo "Build phase complete"']
+
+[start]
+cmd = 'bash railway-start.sh'
