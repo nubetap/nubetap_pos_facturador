@@ -36,7 +36,7 @@ chmod -R 775 storage/app/public
 chmod -R 775 storage/app/sunat
 
 echo "=== Starting application ==="
-echo "PORT: ${PORT:-8080}"
+echo "Railway assigned PORT: ${PORT}"
 
-# Iniciar servidor web
-php artisan serve --host=0.0.0.0 --port=${PORT:-8080} --no-reload
+# Iniciar servidor web en el puerto asignado por Railway
+php artisan serve --host=0.0.0.0 --port=${PORT} --no-reload
