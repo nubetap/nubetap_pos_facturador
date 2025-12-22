@@ -1,0 +1,59 @@
+FROM php:8.2-cli
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    libpng-dev \
+    libonig-dev \
+    libxml2-dev \
+    libpq-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar extensiones PHP
+RUN docker-php-ext-install \
+    pdo \
+    pdo_pgsql \
+    pgsql \
+    mbstring \
+    exif \
+    pcntl \
+    bcmath \
+    zip \
+    soap
+
+# Instalar Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Configurar directorio de trabajo
+WORKDIR /var/www/html
+
+# Copiar archivos del proyecto
+COPY . .
+
+# Instalar dependencias PHP
+RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+# Instalar dependencias Node.js y compilar assets
+RUN npm install && npm run build
+
+# Crear directorios y permisos
+RUN mkdir -p storage/app/public/certificado \
+    storage/app/sunat \
+    storage/logs \
+    storage/framework/cache \
+    storage/framework/sessions \
+    storage/framework/views \
+    bootstrap/cache \
+    && chmod -R 775 storage bootstrap/cache
+
+# Exponer puerto
+EXPOSE 8080
+
+# Comando de inicio
+CMD ["bash", "railway-start.sh"]
