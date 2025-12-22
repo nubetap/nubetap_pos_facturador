@@ -1,18 +1,23 @@
-# Despliegue en Railway - API Facturación Electrónica SUNAT
+# Despliegue en Railway - API Facturación SUNAT (Modo Síncrono)
 
-## Servicios Requeridos
+## Arquitectura Simplificada
 
-Este proyecto necesita 3 servicios en Railway:
+Para ambiente de pruebas con APIs síncronas, solo necesitas:
 
-1. **PostgreSQL** - Base de datos (`Postgres-rH9p`)
-2. **Redis** - Caché, sesiones y colas (tu instancia existente)
-3. **Aplicación Laravel** - API con worker de colas
+1. **PostgreSQL** - Base de datos (`Postgres-rH9p`) ✅ Ya tienes
+2. **Aplicación Laravel** - API (`nubetap_pos_facturador`) ✅ Ya tienes
 
-## Paso a Paso
+**NO necesitas:**
+- ❌ Redis (solo útil para modo asíncrono)
+- ❌ Worker de colas (no usas `/send-sunat-async`)
+
+---
+
+## Paso a Paso - Despliegue en Railway
 
 ### 1. Generar APP_KEY
 
-Ejecuta en tu máquina local:
+En tu máquina local, ejecuta:
 
 ```bash
 php artisan key:generate --show
@@ -22,17 +27,21 @@ Copia la clave generada (ejemplo: `base64:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`)
 
 ---
 
-### 2. Configurar Variables de Entorno en Railway
+### 2. Configurar Variables de Entorno
 
-Ve a tu servicio de aplicación → **Variables** y agrega:
+En Railway, ve a tu servicio **nubetap_pos_facturador** → **Variables** y agrega:
 
 ```bash
-# === CRÍTICAS ===
+# === APLICACIÓN ===
+APP_NAME="API Facturación SUNAT - Staging"
+APP_ENV=staging
 APP_KEY=base64:xxxxx
-APP_ENV=production
-APP_DEBUG=false
+APP_DEBUG=true
+APP_TIMEZONE=America/Lima
+APP_LOCALE=es
+APP_FALLBACK_LOCALE=es
 
-# === PostgreSQL (referencia a Postgres-rH9p) ===
+# === BASE DE DATOS ===
 DB_CONNECTION=pgsql
 DB_HOST=${{Postgres-rH9p.PGHOST}}
 DB_PORT=${{Postgres-rH9p.PGPORT}}
@@ -40,177 +49,241 @@ DB_DATABASE=${{Postgres-rH9p.PGDATABASE}}
 DB_USERNAME=${{Postgres-rH9p.PGUSER}}
 DB_PASSWORD=${{Postgres-rH9p.PGPASSWORD}}
 
-# === Redis (cambia "Redis" por el nombre de tu servicio Redis) ===
-REDIS_CLIENT=phpredis
-REDIS_HOST=${{Redis.REDIS_HOST}}
-REDIS_PORT=${{Redis.REDIS_PORT}}
-REDIS_PASSWORD=${{Redis.REDIS_PASSWORD}}
+# === DRIVERS (SIN REDIS) ===
+CACHE_STORE=database
+SESSION_DRIVER=database
+QUEUE_CONNECTION=sync
+FILESYSTEM_DISK=local
 
-CACHE_STORE=redis
-SESSION_DRIVER=redis
-QUEUE_CONNECTION=redis
-
-# === SUNAT ===
+# === SUNAT (AMBIENTE BETA) ===
 SUNAT_ENVIRONMENT=beta
 
-# === Sanctum ===
+# === SANCTUM ===
 SANCTUM_EXPIRATION=1440
-SANCTUM_TOKEN_PREFIX=sunat_prod_
-SANCTUM_VERIFY_IP=false
-SANCTUM_LOG_USAGE=true
-SANCTUM_MAX_INACTIVITY=120
-SANCTUM_MAX_TOKENS=10
+SANCTUM_TOKEN_PREFIX=sunat_staging_
 
-# === Otras ===
+# === LOGS ===
 LOG_CHANNEL=stack
-LOG_LEVEL=error
-FILESYSTEM_DISK=local
-BROADCAST_CONNECTION=log
+LOG_LEVEL=debug
 BCRYPT_ROUNDS=12
+BROADCAST_CONNECTION=log
 ```
 
-**IMPORTANTE:** Cambia `${{Redis.XXX}}` por el nombre exacto de tu servicio Redis en Railway.
+**IMPORTANTE:**
+- `QUEUE_CONNECTION=sync` hace que los jobs se ejecuten inmediatamente (sin cola)
+- `CACHE_STORE=database` usa la tabla `cache` en PostgreSQL
+- `SESSION_DRIVER=database` usa la tabla `sessions` en PostgreSQL
 
 ---
 
-### 3. Push de Archivos de Configuración
+### 3. Actualizar Archivos de Despliegue
+
+#### Procfile
+Simplifica a solo proceso web:
+
+```
+web: bash railway-start.sh
+```
+
+---
+
+### 4. Push de Cambios
 
 ```bash
-git add Procfile railway-start.sh railway-queue-worker.sh nixpacks.toml RAILWAY-DEPLOY.md
-git commit -m "Add Railway deployment configuration"
+git add Procfile railway-start.sh nixpacks.toml RAILWAY-DEPLOY.md
+git commit -m "Configure Railway deployment for sync mode (no Redis)"
 git push origin main
 ```
 
-Railway detectará el push y desplegará automáticamente:
-- Instalará dependencias PHP y Node.js
-- Compilará assets con Vite
-- Ejecutará migraciones
-- Iniciará la aplicación
+Railway detectará el push y desplegará automáticamente.
 
 ---
 
-### 4. Configurar Dominio (Después del Deploy)
+### 5. Configurar Dominio (Después del Deploy)
 
-1. Copia tu dominio de Railway (ej: `tu-app.up.railway.app`)
-2. Agrega/actualiza estas variables:
+1. En Railway, ve a **nubetap_pos_facturador** → Settings → Networking
+2. Copia tu dominio (ejemplo: `billing.staging.nubetap.com`)
+3. Agrega estas variables:
 
 ```bash
-APP_URL=https://tu-app.up.railway.app
-SANCTUM_STATEFUL_DOMAINS=tu-app.up.railway.app
+APP_URL=https://billing.staging.nubetap.com
+SANCTUM_STATEFUL_DOMAINS=billing.staging.nubetap.com
 ```
 
-3. Railway redesplegará automáticamente
-
----
-
-### 5. Habilitar Worker de Colas (Opcional)
-
-El `Procfile` define 2 procesos: `web` y `worker`. Railway por defecto solo ejecuta `web`.
-
-**Opción A: Servicio Separado (Recomendado)**
-1. En Railway, crea un nuevo servicio desde el mismo repositorio
-2. Renómbralo a "queue-worker"
-3. Ve a Settings → Deploy → Start Command
-4. Pon: `bash railway-queue-worker.sh`
-5. Copia todas las variables de entorno del servicio principal
-
-**Opción B: En el Mismo Proceso (Bajo Tráfico)**
-Edita `railway-start.sh` y agrega antes de la última línea:
-```bash
-php artisan queue:work redis --queue=sunat-send,default --tries=3 --timeout=300 --daemon &
-```
+4. Railway redesplegará automáticamente
 
 ---
 
 ## Verificación Post-Despliegue
 
 ### 1. Revisar Logs
+
 ```bash
-railway logs
+railway logs --service nubetap_pos_facturador
 ```
 
-Confirma que:
-- ✅ Migraciones se ejecutaron
-- ✅ Servidor PHP está corriendo
-- ✅ No hay errores de conexión a Redis/PostgreSQL
+Confirma:
+- ✅ Migraciones ejecutadas
+- ✅ Servidor corriendo en puerto asignado
+- ✅ Sin errores de conexión a PostgreSQL
 
-### 2. Probar Conexión a Redis
+### 2. Health Check
 
 ```bash
-railway run php artisan tinker
-
-# Dentro de tinker:
-Redis::ping()  # Debe retornar "PONG"
-Cache::put('test', 'value', 60)
-Cache::get('test')  # Debe retornar "value"
+curl https://tu-dominio/api/health
 ```
 
-### 3. Verificar API
+Debe retornar estado de:
+- Database ✅
+- Cache ✅
+- Storage ✅
+- PHP Extensions ✅
+
+### 3. Probar Endpoint de Prueba
 
 ```bash
-curl https://tu-dominio.railway.app/api/health
+curl https://tu-dominio/api/ping
+```
+
+Debe retornar: `{"status":"ok","message":"pong"}`
+
+### 4. Probar Login
+
+```bash
+curl -X POST https://tu-dominio/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "tu-password"
+  }'
 ```
 
 ---
 
 ## Subir Certificados SUNAT
 
-**Opción A: Vía API**
-Usa el endpoint de configuración de empresa para subir certificados
+### Opción A: Vía API
 
-**Opción B: Railway CLI**
+Una vez desplegado, usa el endpoint de configuración de empresa:
+
 ```bash
+POST /api/v1/companies/{company_id}/config/certificate
+```
+
+### Opción B: Railway CLI
+
+```bash
+# Instalar CLI
 npm i -g @railway/cli
+
+# Login y conectar
 railway login
 railway link
+
+# Acceder al shell
 railway run bash
 
-# Dentro del shell:
+# Navegar a directorio de certificados
 cd storage/app/public/certificado
-# Sube tus certificados aquí
+
+# Aquí puedes subir tus archivos .pem
+# (usa otro terminal para copiar archivos)
 ```
+
+---
+
+## Arquitectura de Integración con Django
+
+```
+Django Backend
+    ↓ (HTTP Request)
+API Laravel (Railway)
+    ↓ (Procesamiento Síncrono)
+SUNAT
+    ↓ (Respuesta Inmediata)
+API Laravel
+    ↓ (Response)
+Django Backend
+```
+
+**Endpoints que usarás:**
+- `POST /api/v1/invoices/{id}/send-sunat` (síncrono)
+- `POST /api/v1/boletas/{id}/send-sunat` (síncrono)
+- `POST /api/v1/credit-notes/{id}/send-sunat` (síncrono)
+- `POST /api/v1/debit-notes/{id}/send-sunat` (síncrono)
+
+Todos retornan **200 OK** con respuesta inmediata de SUNAT.
 
 ---
 
 ## Solución de Problemas
 
 ### Error: "No application encryption key"
-- Verifica que `APP_KEY` esté configurada en variables de entorno
+- Verifica que `APP_KEY` esté en variables de entorno
+- Debe empezar con `base64:`
 
-### Error de conexión a PostgreSQL
-- Confirma que las referencias `${{Postgres-rH9p.XXX}}` sean correctas
-- Verifica que PostgreSQL esté en el mismo proyecto
+### Error de conexión a base de datos
+- Verifica las referencias `${{Postgres-rH9p.XXX}}`
+- Confirma que PostgreSQL esté en el mismo proyecto Railway
+- Revisa logs: `railway logs`
 
-### Error de conexión a Redis
-- Confirma el nombre exacto de tu servicio Redis
-- Verifica que las referencias `${{NombreRedis.XXX}}` sean correctas
+### Migraciones no se ejecutan
+- Verifica logs del deploy
+- Ejecuta manualmente: `railway run php artisan migrate --force`
 
-### Worker de colas no funciona
-- Verifica que `QUEUE_CONNECTION=redis` esté configurado
-- Revisa logs del servicio worker
-- Confirma que el servicio worker tenga las mismas variables de entorno
+### Storage no tiene permisos
+- Los permisos se configuran en `railway-start.sh`
+- Si falla, ejecuta: `railway run chmod -R 775 storage`
 
-### Archivos no persisten
-- Railway usa almacenamiento efímero
-- Los archivos se pierden en redeploy
-- Considera usar Railway Volumes o S3 para certificados
-
----
-
-## Archivos de Configuración Creados
-
-- **Procfile** - Define procesos web y worker
-- **railway-start.sh** - Ejecuta migraciones y optimizaciones
-- **railway-queue-worker.sh** - Worker de colas dedicado
-- **nixpacks.toml** - Configuración de build (PHP 8.2, Node.js 20)
+### Certificados SUNAT no se encuentran
+- Verifica ruta en variable: `SUNAT_CERTIFICATE_PATH`
+- Debe ser relativa a `storage/app/public/`
 
 ---
 
-## Comandos Útiles
+## Rendimiento en Modo Síncrono
+
+**Ventajas:**
+- ✅ Más simple, sin dependencias extra
+- ✅ Respuesta inmediata desde Django
+- ✅ Menos servicios = menor costo
+
+**Limitaciones:**
+- ⚠️ Cada request espera respuesta de SUNAT (2-5 segundos)
+- ⚠️ Si SUNAT está lento, Django también se ralentiza
+- ⚠️ No hay reintentos automáticos si falla
+
+**Recomendación:** Para producción, considera migrar a modo asíncrono con Redis + Workers.
+
+---
+
+## Migración Futura a Modo Asíncrono
+
+Cuando estés listo para producción, solo necesitas:
+
+1. Agregar servicio Redis en Railway
+2. Cambiar variables:
+   ```bash
+   CACHE_STORE=redis
+   SESSION_DRIVER=redis
+   QUEUE_CONNECTION=redis
+   REDIS_HOST=${{Redis.REDIS_HOST}}
+   REDIS_PORT=${{Redis.REDIS_PORT}}
+   REDIS_PASSWORD=${{Redis.REDIS_PASSWORD}}
+   ```
+3. Agregar worker: `worker: bash railway-queue-worker.sh` en Procfile
+4. Usar endpoints asíncronos: `/send-sunat-async`
+
+---
+
+## Comandos Útiles Railway CLI
 
 ```bash
 # Ver logs en tiempo real
-railway logs
+railway logs --follow
+
+# Ejecutar migraciones
+railway run php artisan migrate
 
 # Ejecutar comandos artisan
 railway run php artisan [comando]
@@ -218,21 +291,47 @@ railway run php artisan [comando]
 # Acceder al shell
 railway run bash
 
-# Ver lista de variables
+# Ver variables de entorno
 railway variables
+
+# Redeploy manual
+railway up
 ```
 
 ---
 
 ## Costos Estimados
 
-Railway tiene un tier gratuito con $5 USD/mes de crédito.
-
-Para esta aplicación:
-- Aplicación web: ~$5-10/mes
-- Queue worker (si es separado): ~$3-5/mes
+**Setup actual (2 servicios):**
 - PostgreSQL: ~$5/mes
-- Redis: ~$3-5/mes
-- **Total**: ~$16-25/mes
+- Aplicación web: ~$5-8/mes
+- **Total: ~$10-13/mes**
 
-**Tip:** Para reducir costos, ejecuta el worker en el mismo proceso web en lugar de servicio separado.
+Railway incluye $5 USD gratis/mes.
+
+---
+
+## Checklist de Despliegue
+
+- [ ] Generar `APP_KEY`
+- [ ] Configurar todas las variables de entorno
+- [ ] Verificar referencia a `Postgres-rH9p`
+- [ ] Simplificar Procfile (solo `web`)
+- [ ] Push de archivos actualizados
+- [ ] Esperar deploy exitoso
+- [ ] Configurar dominio en variables
+- [ ] Probar `/api/health`
+- [ ] Probar login
+- [ ] Subir certificados SUNAT
+- [ ] Probar envío de documento de prueba
+- [ ] Integrar con Django
+
+---
+
+## Soporte
+
+Si encuentras problemas:
+1. Revisa logs: `railway logs`
+2. Verifica variables de entorno
+3. Prueba endpoints con Postman
+4. Consulta ejemplos en carpeta `ejemplos-postman/`
