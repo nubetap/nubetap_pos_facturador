@@ -52,8 +52,12 @@ RUN mkdir -p storage/app/public/certificado \
     bootstrap/cache \
     && chmod -R 775 storage bootstrap/cache
 
-# Exponer puerto
-EXPOSE 8080
+# Railway inyecta PORT como variable de entorno
+ARG PORT=8080
+ENV PORT=${PORT}
+
+# Exponer puerto dinámico
+EXPOSE ${PORT}
 
 # Comando de inicio
 CMD ["bash", "railway-start.sh"]
