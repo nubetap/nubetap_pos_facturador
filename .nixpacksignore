@@ -1,0 +1,14 @@
+# Solo ignorar lo mínimo necesario para Railway
+.git
+.env.docker
+node_modules
+vendor
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+!storage/framework/.gitignore
+!storage/logs/.gitignore
+tests
+.DS_Store
+*.log
