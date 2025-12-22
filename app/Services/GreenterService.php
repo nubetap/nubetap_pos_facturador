@@ -59,7 +59,17 @@ class GreenterService
         
         // Configurar certificado cargando desde archivo
         try {
-            $certificadoPath = storage_path('app/public/certificado/certificado.pem');
+            // Buscar certificado por RUC de la empresa
+            $certificadoPath = storage_path('app/public/certificado/certificado_' . $this->company->ruc . '.pem');
+
+            // Si no existe con RUC, intentar con nombre genérico (fallback)
+            if (!file_exists($certificadoPath)) {
+                $certificadoPath = storage_path('app/public/certificado/certificado.pem');
+                Log::warning("Certificado con RUC no encontrado, usando certificado genérico", [
+                    'ruc' => $this->company->ruc,
+                    'path_buscado' => storage_path('app/public/certificado/certificado_' . $this->company->ruc . '.pem')
+                ]);
+            }
 
             if (!file_exists($certificadoPath)) {
                 throw CertificateException::notFound($certificadoPath);
@@ -77,7 +87,9 @@ class GreenterService
             }
 
             $see->setCertificate($certificadoContent);
-            Log::info("Certificado cargado y validado desde: " . $certificadoPath);
+            Log::info("Certificado cargado y validado desde: " . $certificadoPath, [
+                'ruc' => $this->company->ruc
+            ]);
         } catch (CertificateException $e) {
             throw $e;
         } catch (Exception $e) {
@@ -118,20 +130,32 @@ class GreenterService
         
         // Configurar certificado
         try {
-            $certificadoPath = storage_path('app/public/certificado/certificado.pem');
-            
+            // Buscar certificado por RUC de la empresa
+            $certificadoPath = storage_path('app/public/certificado/certificado_' . $this->company->ruc . '.pem');
+
+            // Si no existe con RUC, intentar con nombre genérico (fallback)
+            if (!file_exists($certificadoPath)) {
+                $certificadoPath = storage_path('app/public/certificado/certificado.pem');
+                Log::warning("Certificado GRE con RUC no encontrado, usando certificado genérico", [
+                    'ruc' => $this->company->ruc,
+                    'path_buscado' => storage_path('app/public/certificado/certificado_' . $this->company->ruc . '.pem')
+                ]);
+            }
+
             if (!file_exists($certificadoPath)) {
                 throw new Exception("Archivo de certificado no encontrado para GRE: " . $certificadoPath);
             }
-            
+
             $certificadoContent = file_get_contents($certificadoPath);
-            
+
             if ($certificadoContent === false) {
                 throw new Exception("No se pudo leer el archivo de certificado para GRE");
             }
-            
+
             $api->setCertificate($certificadoContent);
-            Log::info("Certificado GRE cargado desde archivo: " . $certificadoPath);
+            Log::info("Certificado GRE cargado desde archivo: " . $certificadoPath, [
+                'ruc' => $this->company->ruc
+            ]);
         } catch (Exception $e) {
             Log::error("Error al configurar certificado para GRE: " . $e->getMessage());
             throw new Exception("Error al configurar certificado para GRE: " . $e->getMessage());
