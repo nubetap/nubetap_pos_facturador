@@ -7,11 +7,17 @@ use Carbon\Carbon;
 
 class FileService
 {
+    protected StorageService $storageService;
+
+    public function __construct(StorageService $storageService)
+    {
+        $this->storageService = $storageService;
+    }
     public function saveXml($document, string $xmlContent): string
     {
         $this->ensureDirectoryExists($document, 'xml');
         $path = $this->generatePath($document, 'xml');
-        Storage::disk('public')->put($path, $xmlContent);
+        $this->storageService->saveDocument($path, $xmlContent);
         return $path;
     }
 
@@ -19,7 +25,7 @@ class FileService
     {
         $this->ensureDirectoryExists($document, 'zip');
         $path = $this->generatePath($document, 'zip');
-        Storage::disk('public')->put($path, $cdrContent);
+        $this->storageService->saveDocument($path, $cdrContent);
         return $path;
     }
 
@@ -27,7 +33,7 @@ class FileService
     {
         $this->ensureDirectoryExists($document, 'pdf');
         $path = $this->generatePath($document, 'pdf', $format);
-        Storage::disk('public')->put($path, $pdfContent);
+        $this->storageService->saveDocument($path, $pdfContent);
         return $path;
     }
 
@@ -98,9 +104,9 @@ class FileService
         if (!$document->xml_path) {
             return null;
         }
-        
-        return Storage::disk('public')->exists($document->xml_path) 
-            ? Storage::disk('public')->path($document->xml_path)
+
+        return $this->storageService->documentExists($document->xml_path)
+            ? $this->storageService->getDocumentUrl($document->xml_path)
             : null;
     }
 
@@ -109,9 +115,9 @@ class FileService
         if (!$document->cdr_path) {
             return null;
         }
-        
-        return Storage::disk('public')->exists($document->cdr_path)
-            ? Storage::disk('public')->path($document->cdr_path)
+
+        return $this->storageService->documentExists($document->cdr_path)
+            ? $this->storageService->getDocumentUrl($document->cdr_path)
             : null;
     }
 
@@ -120,19 +126,19 @@ class FileService
         if (!$document->pdf_path) {
             return null;
         }
-        
-        return Storage::disk('public')->exists($document->pdf_path)
-            ? Storage::disk('public')->path($document->pdf_path)
+
+        return $this->storageService->documentExists($document->pdf_path)
+            ? $this->storageService->getDocumentUrl($document->pdf_path)
             : null;
     }
 
     public function downloadXml($document)
     {
-        if (!$document->xml_path || !Storage::disk('public')->exists($document->xml_path)) {
+        if (!$document->xml_path || !$this->storageService->documentExists($document->xml_path)) {
             return null;
         }
-        
-        return Storage::disk('public')->download(
+
+        return $this->storageService->downloadDocument(
             $document->xml_path,
             $document->numero_completo . '.xml'
         );
@@ -140,11 +146,11 @@ class FileService
 
     public function downloadCdr($document)
     {
-        if (!$document->cdr_path || !Storage::disk('public')->exists($document->cdr_path)) {
+        if (!$document->cdr_path || !$this->storageService->documentExists($document->cdr_path)) {
             return null;
         }
-        
-        return Storage::disk('public')->download(
+
+        return $this->storageService->downloadDocument(
             $document->cdr_path,
             'R-' . $document->numero_completo . '.zip'
         );
@@ -152,11 +158,11 @@ class FileService
 
     public function downloadPdf($document)
     {
-        if (!$document->pdf_path || !Storage::disk('public')->exists($document->pdf_path)) {
+        if (!$document->pdf_path || !$this->storageService->documentExists($document->pdf_path)) {
             return null;
         }
 
-        return Storage::disk('public')->download(
+        return $this->storageService->downloadDocument(
             $document->pdf_path,
             $document->numero_completo . '.pdf'
         );
@@ -177,11 +183,11 @@ class FileService
      */
     public function downloadPdfByPath(string $pdfPath, string $fileName)
     {
-        if (!Storage::disk('public')->exists($pdfPath)) {
+        if (!$this->storageService->documentExists($pdfPath)) {
             return null;
         }
 
-        return Storage::disk('public')->download(
+        return $this->storageService->downloadDocument(
             $pdfPath,
             $fileName . '.pdf'
         );
@@ -192,7 +198,7 @@ class FileService
         // Tipos de comprobantes
         $tiposComprobantes = [
             'facturas',
-            'boletas', 
+            'boletas',
             'notas-credito',
             'notas-debito',
             'guias-remision',
@@ -201,15 +207,15 @@ class FileService
             'resumenes-diarios',
             'otros-comprobantes'
         ];
-        
+
         // Tipos de archivos
         $tiposArchivos = ['xml', 'cdr', 'pdf'];
-        
+
         // Crear estructura de directorios base
         foreach ($tiposComprobantes as $tipoComprobante) {
             foreach ($tiposArchivos as $tipoArchivo) {
                 $directory = "{$tipoComprobante}/{$tipoArchivo}";
-                Storage::disk('public')->makeDirectory($directory);
+                $this->storageService->ensureDirectoryExists($directory);
             }
         }
     }
@@ -218,14 +224,12 @@ class FileService
     {
         $date = Carbon::parse($document->fecha_emision);
         $dateFolder = $date->format('dmY');
-        
+
         $tipoComprobante = $this->getDocumentTypeName($document);
         $tipoArchivo = $extension === 'zip' ? 'cdr' : $extension;
-        
+
         $directory = "{$tipoComprobante}/{$tipoArchivo}/{$dateFolder}";
-        
-        if (!Storage::disk('public')->exists($directory)) {
-            Storage::disk('public')->makeDirectory($directory);
-        }
+
+        $this->storageService->ensureDirectoryExists($directory);
     }
 }

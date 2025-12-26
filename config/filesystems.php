@@ -60,6 +60,32 @@ return [
             'report' => false,
         ],
 
+        // Disco para certificados en S3
+        'certificates_s3' => [
+            'driver' => 's3',
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION'),
+            'bucket' => env('AWS_BUCKET'),
+            'root' => 'certificados',
+            'visibility' => 'private',
+            'throw' => false,
+            'report' => false,
+        ],
+
+        // Disco para documentos en S3
+        'documents_s3' => [
+            'driver' => 's3',
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION'),
+            'bucket' => env('AWS_BUCKET'),
+            'root' => 'comprobantes',
+            'visibility' => 'private',
+            'throw' => false,
+            'report' => false,
+        ],
+
     ],
 
     /*

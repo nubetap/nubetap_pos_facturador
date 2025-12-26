@@ -24,11 +24,13 @@ class DocumentService
 {
     protected $fileService;
     protected $pdfService;
+    protected StorageService $storageService;
 
-    public function __construct(FileService $fileService, PdfService $pdfService)
+    public function __construct(FileService $fileService, PdfService $pdfService, StorageService $storageService)
     {
         $this->fileService = $fileService;
         $this->pdfService = $pdfService;
+        $this->storageService = $storageService;
     }
 
     public function createInvoice(array $data): Invoice
@@ -1858,26 +1860,13 @@ class DocumentService
             // Obtener credenciales GRE de la configuración de la empresa
             $company = $guide->company;
 
-            // Configurar certificado por RUC de la empresa
-            $certificadoPath = storage_path('app/public/certificado/certificado_' . $company->ruc . '.pem');
-
-            // Si no existe con RUC, intentar con nombre genérico (fallback)
-            if (!file_exists($certificadoPath)) {
-                $certificadoPath = storage_path('app/public/certificado/certificado.pem');
-                Log::warning("Certificado GRE con RUC no encontrado en DocumentService, usando certificado genérico", [
-                    'ruc' => $company->ruc,
-                    'path_buscado' => storage_path('app/public/certificado/certificado_' . $company->ruc . '.pem')
-                ]);
+            // Configurar certificado usando StorageService
+            $certificadoContent = $this->storageService->getCertificateContent($company->ruc);
+            if ($certificadoContent === null) {
+                throw new Exception(
+                    "No se pudo cargar el certificado para GRE - RUC: " . $company->ruc
+                );
             }
-
-            $certificadoContent = file_get_contents($certificadoPath);
-            if ($certificadoContent === false) {
-                throw new Exception("No se pudo cargar el certificado desde: " . $certificadoPath);
-            }
-
-            Log::info("Certificado GRE cargado desde DocumentService: " . $certificadoPath, [
-                'ruc' => $company->ruc
-            ]);
             
             if (!$company->hasGreCredentials()) {
                 throw new Exception("Las credenciales GRE no están configuradas para la empresa: {$company->razon_social}");
@@ -2005,27 +1994,14 @@ class DocumentService
                 'cpe' => 'https://gre-test.nubefact.com/v1',
             ]);
 
-            // Configurar certificado por RUC de la empresa
+            // Configurar certificado usando StorageService
             $company = $guide->company;
-            $certificadoPath = storage_path('app/public/certificado/certificado_' . $company->ruc . '.pem');
-
-            // Si no existe con RUC, intentar con nombre genérico (fallback)
-            if (!file_exists($certificadoPath)) {
-                $certificadoPath = storage_path('app/public/certificado/certificado.pem');
-                Log::warning("Certificado GRE status check con RUC no encontrado en DocumentService, usando certificado genérico", [
-                    'ruc' => $company->ruc,
-                    'path_buscado' => storage_path('app/public/certificado/certificado_' . $company->ruc . '.pem')
-                ]);
+            $certificadoContent = $this->storageService->getCertificateContent($company->ruc);
+            if ($certificadoContent === null) {
+                throw new Exception(
+                    "No se pudo cargar el certificado para GRE status check - RUC: " . $company->ruc
+                );
             }
-
-            $certificadoContent = file_get_contents($certificadoPath);
-            if ($certificadoContent === false) {
-                throw new Exception("No se pudo cargar el certificado desde: " . $certificadoPath);
-            }
-
-            Log::info("Certificado GRE status check cargado desde DocumentService: " . $certificadoPath, [
-                'ruc' => $company->ruc
-            ]);
 
             $api->setBuilderOptions([
                 'strict_variables' => true,

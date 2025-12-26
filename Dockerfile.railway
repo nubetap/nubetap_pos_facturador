@@ -1,7 +1,7 @@
 FROM php:8.2-cli
 
-# Instalar dependencias del sistema
-RUN apt-get update && apt-get install -y \
+# Instalar dependencias del sistema (incluyendo librerías para GD, QR codes, y PDFs)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     libpng-dev \
@@ -9,14 +9,23 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     libpq-dev \
     libzip-dev \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
+    libwebp-dev \
+    libicu-dev \
     zip \
     unzip \
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar extensiones PHP
-RUN docker-php-ext-install \
+# Configurar extensión GD con soporte para imágenes (necesario para dompdf y QR codes)
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
+    && docker-php-ext-configure pgsql -with-pgsql=/usr/local/pgsql \
+    && docker-php-ext-configure intl
+
+# Instalar extensiones PHP (incluyendo GD para PDFs/QR codes)
+RUN docker-php-ext-install -j$(nproc) \
     pdo \
     pdo_pgsql \
     pgsql \
@@ -24,8 +33,11 @@ RUN docker-php-ext-install \
     exif \
     pcntl \
     bcmath \
+    gd \
     zip \
-    soap
+    soap \
+    intl \
+    opcache
 
 # Instalar Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
