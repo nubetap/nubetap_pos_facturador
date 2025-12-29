@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Company;
 use App\Services\GreenterService;
+use App\Services\StorageService;
 use Illuminate\Console\Command;
 
 class ValidateSunatConfiguration extends Command
@@ -142,7 +143,8 @@ class ValidateSunatConfiguration extends Command
 
         try {
             if (!empty($company->usuario_sol) && !empty($company->clave_sol) && file_exists($certPath)) {
-                $greenter = new GreenterService($company);
+                $storageService = app(StorageService::class);
+                $greenter = new GreenterService($company, $storageService);
                 $config = $greenter->getServiceConfiguration();
 
                 $this->info('  ✓ Greenter inicializado correctamente');

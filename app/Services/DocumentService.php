@@ -415,7 +415,7 @@ class DocumentService
     {
         try {
             $company = $document->company;
-            $greenterService = new GreenterService($company);
+            $greenterService = new GreenterService($company, $this->storageService);
             
             // Preparar datos para Greenter
             $documentData = $this->prepareDocumentData($document, $documentType);
@@ -1031,7 +1031,7 @@ class DocumentService
     {
         try {
             $company = $summary->company;
-            $greenterService = new GreenterService($company);
+            $greenterService = new GreenterService($company, $this->storageService);
             
             // Preparar datos para Greenter
             $summaryData = $this->prepareSummaryData($summary);
@@ -1099,8 +1099,8 @@ class DocumentService
             }
             
             $company = $summary->company;
-            $greenterService = new GreenterService($company);
-            
+            $greenterService = new GreenterService($company, $this->storageService);
+
             $result = $greenterService->checkSummaryStatus($summary->ticket);
             
             if ($result['success'] && $result['cdr_response']) {
@@ -2275,7 +2275,7 @@ class DocumentService
     public function sendRetentionToSunat(Retention $retention): array
     {
         try {
-            $greenterService = new GreenterService($retention->company);
+            $greenterService = new GreenterService($retention->company, $this->storageService);
             
             // Preparar datos para Greenter
             $retentionData = [
@@ -2383,7 +2383,7 @@ class DocumentService
     {
         try {
             $company = $voidedDocument->company;
-            $greenterService = new GreenterService($company);
+            $greenterService = new GreenterService($company, $this->storageService);
             
             // Preparar datos para Greenter
             $voidedData = $this->prepareVoidedDocumentData($voidedDocument);
@@ -2445,7 +2445,7 @@ class DocumentService
     {
         try {
             $company = $voidedDocument->company;
-            $greenterService = new GreenterService($company);
+            $greenterService = new GreenterService($company, $this->storageService);
             
             // Consultar estado con ticket
             $result = $greenterService->checkVoidedDocumentStatus($voidedDocument->ticket);

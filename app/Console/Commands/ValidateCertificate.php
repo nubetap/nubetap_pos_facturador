@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Models\Company;
 use App\Services\GreenterService;
+use App\Services\StorageService;
 
 class ValidateCertificate extends Command
 {
@@ -23,7 +24,7 @@ class ValidateCertificate extends Command
 
         $this->info("🔍 Validando certificado para empresa: {$company->razon_social}");
         $this->info("📄 RUC: {$company->ruc}");
-        
+
         // Verificar que existe certificado
         if (empty($company->certificado_pem)) {
             $this->error("❌ No hay certificado configurado");
@@ -32,10 +33,11 @@ class ValidateCertificate extends Command
 
         // Validar estructura PEM
         $this->validatePemStructure($company->certificado_pem);
-        
+
         // Probar carga en Greenter
         try {
-            $greenterService = new GreenterService($company);
+            $storageService = app(StorageService::class);
+            $greenterService = new GreenterService($company, $storageService);
             $this->info("✅ Certificado cargado correctamente en Greenter");
         } catch (\Exception $e) {
             $this->error("❌ Error al cargar certificado en Greenter: " . $e->getMessage());
