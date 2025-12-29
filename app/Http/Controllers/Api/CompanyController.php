@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Company\StoreCompanyRequest;
 use App\Http\Requests\Company\UpdateCompanyRequest;
 use App\Models\Company;
+use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -14,6 +15,12 @@ use Exception;
 
 class CompanyController extends Controller
 {
+    protected StorageService $storageService;
+
+    public function __construct(StorageService $storageService)
+    {
+        $this->storageService = $storageService;
+    }
     /**
      * Listar todas las empresas
      */
@@ -258,18 +265,23 @@ class CompanyController extends Controller
         if ($request->hasFile('certificado_pem')) {
             // CRÍTICO: Usar RUC para nombre único del certificado (evita sobrescritura)
             $ruc = $validatedData['ruc'] ?? $request->route('company')?->ruc ?? 'temp_' . time();
-            $extension = $request->file('certificado_pem')->getClientOriginalExtension();
-            $fileName = 'certificado_' . $ruc . '.' . $extension;
 
-            $validatedData['certificado_pem'] = $this->storeFile(
-                $request->file('certificado_pem'),
-                'certificado',
-                $fileName
-            );
+            // Leer contenido del certificado
+            $certificateContent = file_get_contents($request->file('certificado_pem')->getRealPath());
+
+            // Guardar usando StorageService (detecta automáticamente local vs S3)
+            $saved = $this->storageService->saveCertificate($ruc, $certificateContent);
+
+            if (!$saved) {
+                throw new Exception("No se pudo guardar el certificado para RUC: {$ruc}");
+            }
+
+            // Guardar path relativo en BD
+            $validatedData['certificado_pem'] = $this->storageService->getCertificatePath($ruc);
 
             Log::info("Certificado almacenado", [
                 'ruc' => $ruc,
-                'filename' => $fileName,
+                'storage' => $this->storageService->useS3() ? 's3' : 'local',
                 'path' => $validatedData['certificado_pem']
             ]);
         }
