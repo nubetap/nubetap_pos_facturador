@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use App\Models\Branch;
 use App\Models\User;
+use App\Services\StorageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,12 @@ use Illuminate\Support\Facades\Storage;
 
 class SetupController extends Controller
 {
+    protected StorageService $storageService;
+
+    public function __construct(StorageService $storageService)
+    {
+        $this->storageService = $storageService;
+    }
     /**
      * Setup completo del sistema
      */
@@ -353,9 +360,27 @@ class SetupController extends Controller
         // Procesar logo si se subió un archivo
         if ($request->hasFile('logo_path')) {
             $logoFile = $request->file('logo_path');
-            $fileName = 'logo.' . $logoFile->getClientOriginalExtension();
-            $logoPath = $logoFile->storeAs('logo', $fileName, 'public');
-            $companyData['logo_path'] = $logoPath;
+            $ruc = $companyData['ruc'];
+            $extension = $logoFile->getClientOriginalExtension();
+
+            // Leer contenido del logo
+            $logoContent = file_get_contents($logoFile->getRealPath());
+
+            // Guardar usando StorageService (detecta automáticamente local vs S3)
+            $saved = $this->storageService->saveLogo($ruc, $logoContent, $extension);
+
+            if (!$saved) {
+                throw new \Exception("No se pudo guardar el logo para RUC: {$ruc}");
+            }
+
+            // Guardar path relativo en BD
+            $companyData['logo_path'] = $this->storageService->getLogoPath($ruc, $extension);
+
+            Log::info("Logo almacenado en setup", [
+                'ruc' => $ruc,
+                'storage' => $this->storageService->useS3() ? 's3' : 'local',
+                'path' => $companyData['logo_path']
+            ]);
         }
         
         // Agregar campos GRE si están presentes en la solicitud
