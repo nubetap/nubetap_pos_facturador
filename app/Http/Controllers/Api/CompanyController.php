@@ -10,6 +10,7 @@ use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Exception;
 
@@ -294,23 +295,24 @@ class CompanyController extends Controller
             // Leer contenido del logo
             $logoContent = file_get_contents($request->file('logo_path')->getRealPath());
 
-            // Determinar path según storage (mismo nivel que certificados y comprobantes)
-            $logoPath = $this->storageService->useS3()
-                ? "logos/{$fileName}"  // S3: s3://bucket/logos/logo_{RUC}.png
-                : "logos/{$fileName}"; // Local: storage/app/public/logos/logo_{RUC}.png
-
-            // Guardar usando StorageService
-            $saved = $this->storageService->saveDocument($logoPath, $logoContent);
-
-            if (!$saved) {
-                throw new Exception("No se pudo guardar el logo para RUC: {$ruc}");
+            // Determinar disk y path según storage
+            if ($this->storageService->useS3()) {
+                // S3: Usar disco logos_s3 con root 'logos'
+                $disk = 'logos_s3';
+                $logoPath = $fileName; // Se guardará en s3://bucket/logos/logo_{RUC}.png
+            } else {
+                // Local: Usar disco public
+                $disk = 'public';
+                $logoPath = "logos/{$fileName}"; // Se guardará en storage/app/public/logos/logo_{RUC}.png
             }
 
+            Storage::disk($disk)->put($logoPath, $logoContent);
             $validatedData['logo_path'] = $logoPath;
 
             Log::info("Logo almacenado", [
                 'ruc' => $ruc,
                 'storage' => $this->storageService->useS3() ? 's3' : 'local',
+                'disk' => $disk,
                 'path' => $logoPath,
                 'extension' => $extension
             ]);
