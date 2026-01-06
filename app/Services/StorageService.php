@@ -32,6 +32,14 @@ class StorageService
     }
 
     /**
+     * Obtiene el disco a usar para logos
+     */
+    public function getLogoDisk(): string
+    {
+        return $this->useS3() ? 'logos_s3' : 'public';
+    }
+
+    /**
      * Obtiene la ruta del certificado según el RUC de la empresa
      */
     public function getCertificatePath(string $ruc): string
@@ -45,6 +53,22 @@ class StorageService
 
         // En local: storage/app/public/certificado/certificado_{RUC}.pem
         return "certificado/{$filename}";
+    }
+
+    /**
+     * Obtiene la ruta del logo según el RUC de la empresa y extensión
+     */
+    public function getLogoPath(string $ruc, string $extension): string
+    {
+        $filename = "logo_{$ruc}.{$extension}";
+
+        if ($this->useS3()) {
+            // En S3: logos/logo_{RUC}.{extension}
+            return $filename;
+        }
+
+        // En local: storage/app/public/logos/logo_{RUC}.{extension}
+        return "logos/{$filename}";
     }
 
     /**
@@ -109,6 +133,7 @@ class StorageService
             Log::info("Certificado guardado exitosamente", [
                 'ruc' => $ruc,
                 'storage' => $this->useS3() ? 's3' : 'local',
+                'disk' => $disk,
                 'path' => $path
             ]);
 
@@ -118,6 +143,38 @@ class StorageService
                 'ruc' => $ruc,
                 'error' => $e->getMessage(),
                 'storage' => $this->useS3() ? 's3' : 'local'
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * Guarda un logo
+     */
+    public function saveLogo(string $ruc, string $content, string $extension): bool
+    {
+        $disk = $this->getLogoDisk();
+        $path = $this->getLogoPath($ruc, $extension);
+
+        try {
+            Storage::disk($disk)->put($path, $content);
+
+            Log::info("Logo guardado exitosamente", [
+                'ruc' => $ruc,
+                'storage' => $this->useS3() ? 's3' : 'local',
+                'disk' => $disk,
+                'path' => $path,
+                'extension' => $extension
+            ]);
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Error al guardar logo", [
+                'ruc' => $ruc,
+                'error' => $e->getMessage(),
+                'storage' => $this->useS3() ? 's3' : 'local',
+                'extension' => $extension
             ]);
 
             return false;

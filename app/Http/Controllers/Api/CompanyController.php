@@ -10,7 +10,6 @@ use App\Services\StorageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Exception;
 
@@ -288,33 +287,27 @@ class CompanyController extends Controller
         }
 
         if ($request->hasFile('logo_path')) {
+            // CRÍTICO: Usar RUC para nombre único del logo (evita sobrescritura)
             $ruc = $validatedData['ruc'] ?? $request->route('company')?->ruc ?? 'temp_' . time();
             $extension = $request->file('logo_path')->getClientOriginalExtension();
-            $fileName = 'logo_' . $ruc . '.' . $extension;
 
             // Leer contenido del logo
             $logoContent = file_get_contents($request->file('logo_path')->getRealPath());
 
-            // Determinar disk y path según storage
-            if ($this->storageService->useS3()) {
-                // S3: Usar disco logos_s3 con root 'logos'
-                $disk = 'logos_s3';
-                $logoPath = $fileName; // Se guardará en s3://bucket/logos/logo_{RUC}.png
-            } else {
-                // Local: Usar disco public
-                $disk = 'public';
-                $logoPath = "logos/{$fileName}"; // Se guardará en storage/app/public/logos/logo_{RUC}.png
+            // Guardar usando StorageService (detecta automáticamente local vs S3)
+            $saved = $this->storageService->saveLogo($ruc, $logoContent, $extension);
+
+            if (!$saved) {
+                throw new Exception("No se pudo guardar el logo para RUC: {$ruc}");
             }
 
-            Storage::disk($disk)->put($logoPath, $logoContent);
-            $validatedData['logo_path'] = $logoPath;
+            // Guardar path relativo en BD
+            $validatedData['logo_path'] = $this->storageService->getLogoPath($ruc, $extension);
 
             Log::info("Logo almacenado", [
                 'ruc' => $ruc,
                 'storage' => $this->storageService->useS3() ? 's3' : 'local',
-                'disk' => $disk,
-                'path' => $logoPath,
-                'extension' => $extension
+                'path' => $validatedData['logo_path']
             ]);
         }
 
