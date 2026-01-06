@@ -287,8 +287,33 @@ class CompanyController extends Controller
         }
 
         if ($request->hasFile('logo_path')) {
-            $fileName = 'logo_' . time() . '.' . $request->file('logo_path')->getClientOriginalExtension();
-            $validatedData['logo_path'] = $this->storeFile($request->file('logo_path'), 'logos', $fileName);
+            $ruc = $validatedData['ruc'] ?? $request->route('company')?->ruc ?? 'temp_' . time();
+            $extension = $request->file('logo_path')->getClientOriginalExtension();
+            $fileName = 'logo_' . $ruc . '.' . $extension;
+
+            // Leer contenido del logo
+            $logoContent = file_get_contents($request->file('logo_path')->getRealPath());
+
+            // Determinar path según storage (mismo nivel que certificados y comprobantes)
+            $logoPath = $this->storageService->useS3()
+                ? "logos/{$fileName}"  // S3: s3://bucket/logos/logo_{RUC}.png
+                : "logos/{$fileName}"; // Local: storage/app/public/logos/logo_{RUC}.png
+
+            // Guardar usando StorageService
+            $saved = $this->storageService->saveDocument($logoPath, $logoContent);
+
+            if (!$saved) {
+                throw new Exception("No se pudo guardar el logo para RUC: {$ruc}");
+            }
+
+            $validatedData['logo_path'] = $logoPath;
+
+            Log::info("Logo almacenado", [
+                'ruc' => $ruc,
+                'storage' => $this->storageService->useS3() ? 's3' : 'local',
+                'path' => $logoPath,
+                'extension' => $extension
+            ]);
         }
 
         return $validatedData;
@@ -300,14 +325,6 @@ class CompanyController extends Controller
     private function processBoolean($value): bool
     {
         return filter_var($value, FILTER_VALIDATE_BOOLEAN);
-    }
-
-    /**
-     * Almacenar archivo
-     */
-    private function storeFile($file, string $directory, string $fileName): string
-    {
-        return $file->storeAs($directory, $fileName, 'public');
     }
 
     /**
