@@ -36,7 +36,7 @@ class StorageService
      */
     public function getLogoDisk(): string
     {
-        return $this->useS3() ? 'logos_s3' : 'public';
+        return $this->useS3() ? 's3' : 'public';
     }
 
     /**
@@ -62,12 +62,9 @@ class StorageService
     {
         $filename = "logo_{$ruc}.{$extension}";
 
-        if ($this->useS3()) {
-            // En S3: solo filename, el disco con root='logos' lo maneja
-            return $filename;
-        }
-
-        // En local: con carpeta logos/
+        // Siempre retorna el path completo con el directorio logos/
+        // El disco 's3' no tiene root, así que guardará en s3://bucket/logos/logo_{ruc}.ext
+        // El disco 'public' guardará en storage/app/public/logos/logo_{ruc}.ext
         return "logos/{$filename}";
     }
 
