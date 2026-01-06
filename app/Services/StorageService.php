@@ -63,11 +63,11 @@ class StorageService
         $filename = "logo_{$ruc}.{$extension}";
 
         if ($this->useS3()) {
-            // En S3: logos/logo_{RUC}.{extension}
+            // En S3: solo filename, el disco con root='logos' lo maneja
             return $filename;
         }
 
-        // En local: storage/app/public/logos/logo_{RUC}.{extension}
+        // En local: con carpeta logos/
         return "logos/{$filename}";
     }
 
