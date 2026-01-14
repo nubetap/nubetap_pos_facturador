@@ -446,11 +446,13 @@ class DocumentService
             if ($result['xml']) {
                 $xmlPath = $this->fileService->saveXml($document, $result['xml']);
                 $document->xml_path = $xmlPath;
+                $document->xml_url = $this->storageService->getDocumentUrl($xmlPath);
             }
-            
+
             if ($result['success'] && $result['cdr_zip']) {
                 $cdrPath = $this->fileService->saveCdr($document, $result['cdr_zip']);
                 $document->cdr_path = $cdrPath;
+                $document->cdr_url = $this->storageService->getDocumentUrl($cdrPath);
                 
                 $document->estado_sunat = 'ACEPTADO';
                 $document->respuesta_sunat = json_encode([
@@ -1045,10 +1047,12 @@ class DocumentService
             if ($result['success']) {
                 // Guardar archivos
                 $xmlPath = $this->fileService->saveXml($summary, $result['xml']);
-                
+                $xmlUrl = $this->storageService->getDocumentUrl($xmlPath);
+
                 // Actualizar el resumen
                 $summary->update([
                     'xml_path' => $xmlPath,
+                    'xml_url' => $xmlUrl,
                     'estado_proceso' => 'ENVIADO',
                     'estado_sunat' => 'PROCESANDO',
                     'ticket' => $result['ticket'],
@@ -1106,10 +1110,12 @@ class DocumentService
             if ($result['success'] && $result['cdr_response']) {
                 // Guardar CDR
                 $cdrPath = $this->fileService->saveCdr($summary, $result['cdr_zip']);
-                
+                $cdrUrl = $this->storageService->getDocumentUrl($cdrPath);
+
                 // Actualizar estado
                 $summary->update([
                     'cdr_path' => $cdrPath,
+                    'cdr_url' => $cdrUrl,
                     'estado_proceso' => 'COMPLETADO',
                     'estado_sunat' => 'ACEPTADO',
                     'respuesta_sunat' => json_encode([
@@ -1909,10 +1915,12 @@ class DocumentService
                 
                 // Guardar archivos
                 $xmlPath = $this->fileService->saveXml($guide, $xml);
-                
+                $xmlUrl = $this->storageService->getDocumentUrl($xmlPath);
+
                 // Actualizar la guía
                 $guide->update([
                     'xml_path' => $xmlPath,
+                    'xml_url' => $xmlUrl,
                     'estado_sunat' => 'PROCESANDO',
                     'ticket' => $ticket,
                     'respuesta_sunat' => json_encode(['success' => true, 'ticket' => $ticket])
@@ -2026,13 +2034,16 @@ class DocumentService
                 // Guardar CDR
                 $cdrZip = $result->getCdrZip();
                 $cdrPath = null;
+                $cdrUrl = null;
                 if ($cdrZip) {
                     $cdrPath = $this->fileService->saveCdr($guide, $cdrZip);
+                    $cdrUrl = $this->storageService->getDocumentUrl($cdrPath);
                 }
-                
+
                 // Actualizar estado
                 $guide->update([
                     'cdr_path' => $cdrPath,
+                    'cdr_url' => $cdrUrl,
                     'estado_sunat' => 'ACEPTADO',
                     'respuesta_sunat' => json_encode([
                         'code' => $cdr->getCode(),
@@ -2312,17 +2323,21 @@ class DocumentService
             
             // Guardar archivos
             if ($result['xml']) {
-                $retention->xml_path = $this->fileService->saveXml($retention, $result['xml'], 'retention');
+                $xmlPath = $this->fileService->saveXml($retention, $result['xml'], 'retention');
+                $retention->xml_path = $xmlPath;
+                $retention->xml_url = $this->storageService->getDocumentUrl($xmlPath);
             }
-            
+
             if ($result['success'] && $result['cdr_zip']) {
-                $retention->cdr_path = $this->fileService->saveCdr($retention, $result['cdr_zip'], 'retention');
+                $cdrPath = $this->fileService->saveCdr($retention, $result['cdr_zip'], 'retention');
+                $retention->cdr_path = $cdrPath;
+                $retention->cdr_url = $this->storageService->getDocumentUrl($cdrPath);
                 $retention->hash_cdr = $result['cdr_response']->getId() ?? '';
                 $retention->estado_sunat = 'ACEPTADO';
             } else {
                 $retention->estado_sunat = 'RECHAZADO';
             }
-            
+
             $retention->save();
             
             return [
@@ -2397,10 +2412,12 @@ class DocumentService
             if ($result['success']) {
                 // Guardar archivos
                 $xmlPath = $this->fileService->saveXml($voidedDocument, $result['xml']);
-                
+                $xmlUrl = $this->storageService->getDocumentUrl($xmlPath);
+
                 // Actualizar la comunicación de baja
                 $voidedDocument->update([
                     'xml_path' => $xmlPath,
+                    'xml_url' => $xmlUrl,
                     'estado_sunat' => 'ENVIADO',
                     'ticket' => $result['ticket'],
                     'codigo_hash' => $this->extractHashFromXml($result['xml']),
@@ -2463,19 +2480,21 @@ class DocumentService
                         if ($result['cdr_zip']) {
                             $cdrPath = $this->fileService->saveCdr($voidedDocument, $result['cdr_zip']);
                             $voidedDocument->cdr_path = $cdrPath;
+                            $voidedDocument->cdr_url = $this->storageService->getDocumentUrl($cdrPath);
                         }
                     } elseif (strpos($cdrResponse->getDescription(), 'rechazad') !== false) {
                         $estado = 'RECHAZADO';
                     }
                 }
-                
+
                 $voidedDocument->update([
                     'estado_sunat' => $estado,
                     'respuesta_sunat' => $cdrResponse ? json_encode([
                         'code' => $cdrResponse->getCode(),
                         'description' => $cdrResponse->getDescription()
                     ]) : null,
-                    'cdr_path' => $voidedDocument->cdr_path
+                    'cdr_path' => $voidedDocument->cdr_path,
+                    'cdr_url' => $voidedDocument->cdr_url
                 ]);
                 
                 return [

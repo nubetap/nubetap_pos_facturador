@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Traits;
 
 use App\Services\PdfService;
 use App\Services\FileService;
+use App\Services\StorageService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -41,16 +42,24 @@ trait HandlesPdfGeneration
             
             // Guardar PDF
             $fileService = app(FileService::class);
+            $storageService = app(StorageService::class);
             $pdfPath = $fileService->savePdf($document, $pdfContent, $format);
-            
-            // Actualizar ruta en la base de datos
-            $document->update(['pdf_path' => $pdfPath]);
-            
+
+            // Obtener URL del PDF
+            $pdfUrl = $storageService->getDocumentUrl($pdfPath);
+
+            // Actualizar ruta y URL en la base de datos
+            $document->update([
+                'pdf_path' => $pdfPath,
+                'pdf_url' => $pdfUrl
+            ]);
+
             return response()->json([
                 'success' => true,
                 'message' => "PDF generado correctamente en formato {$format}",
                 'data' => [
                     'pdf_path' => $pdfPath,
+                    'pdf_url' => $pdfUrl,
                     'format' => $format,
                     'document_type' => $documentType,
                     'document_id' => $document->id
@@ -111,7 +120,12 @@ trait HandlesPdfGeneration
 
                 // Actualizar solo si es el formato por defecto (A4)
                 if ($format === 'A4') {
-                    $document->update(['pdf_path' => $pdfPath]);
+                    $storageService = app(StorageService::class);
+                    $pdfUrl = $storageService->getDocumentUrl($pdfPath);
+                    $document->update([
+                        'pdf_path' => $pdfPath,
+                        'pdf_url' => $pdfUrl
+                    ]);
                 }
             }
 

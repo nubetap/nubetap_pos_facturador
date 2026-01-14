@@ -46,9 +46,12 @@ class DispatchGuide extends Model
         
         // Archivos generados
         'xml_path',
+        'xml_url',
         'cdr_path',
+        'cdr_url',
         'pdf_path',
-        
+        'pdf_url',
+
         // Estado SUNAT
         'estado_sunat',
         'respuesta_sunat',

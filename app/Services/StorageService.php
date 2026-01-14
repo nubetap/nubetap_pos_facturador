@@ -299,8 +299,8 @@ class StorageService
             return "https://{$bucket}.s3.{$region}.amazonaws.com/{$root}/{$path}";
         }
 
-        // Para local, retornar ruta absoluta
-        return Storage::disk('public')->path($path);
+        // Para local, retornar URL accesible
+        return asset("storage/{$path}");
     }
 
     /**
