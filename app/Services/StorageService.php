@@ -179,6 +179,31 @@ class StorageService
     }
 
     /**
+     * Obtiene la URL del logo
+     */
+    public function getLogoUrl(string $ruc, string $extension): ?string
+    {
+        $disk = $this->getLogoDisk();
+        $path = $this->getLogoPath($ruc, $extension);
+
+        if (!Storage::disk($disk)->exists($path)) {
+            return null;
+        }
+
+        if ($this->useS3()) {
+            // URL pública del objeto S3
+            // Formato: https://{bucket}.s3.{region}.amazonaws.com/{path}
+            $bucket = config('filesystems.disks.s3.bucket');
+            $region = config('filesystems.disks.s3.region');
+
+            return "https://{$bucket}.s3.{$region}.amazonaws.com/{$path}";
+        }
+
+        // Para local, retornar URL pública
+        return asset("storage/{$path}");
+    }
+
+    /**
      * Obtiene la ruta absoluta del certificado (solo para local)
      * Para S3, retorna la URL firmada
      */
@@ -265,8 +290,13 @@ class StorageService
         }
 
         if ($this->useS3()) {
-            // URL temporal firmada (5 minutos)
-            return Storage::disk($disk)->temporaryUrl($path, now()->addMinutes(5));
+            // URL pública del objeto S3
+            // Formato: https://{bucket}.s3.{region}.amazonaws.com/{root}/{path}
+            $bucket = config('filesystems.disks.documents_s3.bucket');
+            $region = config('filesystems.disks.documents_s3.region');
+            $root = config('filesystems.disks.documents_s3.root');
+
+            return "https://{$bucket}.s3.{$region}.amazonaws.com/{$root}/{$path}";
         }
 
         // Para local, retornar ruta absoluta
