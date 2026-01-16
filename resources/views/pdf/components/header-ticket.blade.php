@@ -2,14 +2,39 @@
 {{-- Props: $company, $document, $tipo_documento_nombre, $format --}}
 
 @php
-    $logoPath = public_path('logo_factura.png');
+    // Obtener logo de la empresa desde logo_path (URL pública)
+    $logoUrl = $company->logo_path ?? null;
+    $logoBase64 = null;
+    $logoMimeType = 'image/png';
+
+    if ($logoUrl) {
+        // Detectar tipo MIME por extensión
+        $extension = strtolower(pathinfo(parse_url($logoUrl, PHP_URL_PATH), PATHINFO_EXTENSION));
+        $mimeTypes = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif'];
+        $logoMimeType = $mimeTypes[$extension] ?? 'image/png';
+
+        // Descargar logo desde URL
+        $logoContent = @file_get_contents($logoUrl);
+        if ($logoContent) {
+            $logoBase64 = base64_encode($logoContent);
+        }
+    }
+
+    // Fallback a logo por defecto
+    if (!$logoBase64) {
+        $defaultLogoPath = public_path('logo_factura.png');
+        if (file_exists($defaultLogoPath)) {
+            $logoBase64 = base64_encode(file_get_contents($defaultLogoPath));
+            $logoMimeType = 'image/png';
+        }
+    }
 @endphp
 
 <div class="header">
     {{-- Logo --}}
-    @if(file_exists($logoPath))
+    @if($logoBase64)
         <div class="logo-section-ticket">
-            <img src="data:image/png;base64,{{ base64_encode(file_get_contents($logoPath)) }}" alt="Logo Empresa" class="logo-img-ticket">
+            <img src="data:{{ $logoMimeType }};base64,{{ $logoBase64 }}" alt="Logo Empresa" class="logo-img-ticket">
         </div>
     @endif
 

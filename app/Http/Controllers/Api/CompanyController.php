@@ -301,13 +301,14 @@ class CompanyController extends Controller
                 throw new Exception("No se pudo guardar el logo para RUC: {$ruc}");
             }
 
-            // Guardar path relativo en BD
-            $validatedData['logo_path'] = $this->storageService->getLogoPath($ruc, $extension);
+            // Obtener URL pública del logo y guardarla en BD
+            $logoUrl = $this->storageService->getLogoUrl($ruc, $extension);
+            $validatedData['logo_path'] = $logoUrl;
 
             Log::info("Logo almacenado", [
                 'ruc' => $ruc,
                 'storage' => $this->storageService->useS3() ? 's3' : 'local',
-                'path' => $validatedData['logo_path']
+                'logo_url' => $logoUrl
             ]);
         }
 

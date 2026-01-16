@@ -756,15 +756,25 @@ class DocumentService
 
             // Descuentos por anticipo reducen SOLO mto_oper_gravadas (NO valor_venta)
             if ($descuentoAnticipo > 0) {
+                // Obtener el porcentaje IGV del primer detalle gravado (código 10) o usar 18% por defecto
+                $porcentajeIgvGlobal = 18;
+                foreach ($detalles as $det) {
+                    if (isset($det['tip_afe_igv']) && $det['tip_afe_igv'] === '10') {
+                        $porcentajeIgvGlobal = $det['porcentaje_igv'] ?? 18;
+                        break;
+                    }
+                }
+
                 \Log::info('ANTICIPO DETECTADO', [
                     'descuentoAnticipo' => $descuentoAnticipo,
                     'mto_oper_gravadas_antes' => $totals['mto_oper_gravadas'],
-                    'mto_igv_antes' => $totals['mto_igv']
+                    'mto_igv_antes' => $totals['mto_igv'],
+                    'porcentaje_igv_usado' => $porcentajeIgvGlobal
                 ]);
 
                 $totals['mto_oper_gravadas'] -= $descuentoAnticipo;
-                // Recalcular IGV sobre la base reducida (para XML de SUNAT)
-                $totals['mto_igv'] = $totals['mto_oper_gravadas'] * 0.18;
+                // Recalcular IGV sobre la base reducida usando el porcentaje configurado (para XML de SUNAT)
+                $totals['mto_igv'] = $totals['mto_oper_gravadas'] * ($porcentajeIgvGlobal / 100);
 
                 \Log::info('ANTICIPO APLICADO', [
                     'mto_oper_gravadas_despues' => $totals['mto_oper_gravadas'],
