@@ -330,6 +330,11 @@ class GreenterService
                     ->setSubTotal($invoiceData['sub_total'])
                     ->setMtoImpVenta($invoiceData['mto_imp_venta']);
 
+            // Redondeo (ajuste por diferencia de centavos)
+            if (isset($invoiceData['redondeo']) && $invoiceData['redondeo'] != 0) {
+                $invoice->setRedondeo($invoiceData['redondeo']);
+            }
+
             // Base ISC total (sumatoria de bases ISC de detalles) - requerido por SUNAT
             if (($invoiceData['mto_isc'] ?? 0) > 0 && isset($invoiceData['detalles'])) {
                 $totalBaseIsc = array_reduce($invoiceData['detalles'], function($carry, $detalle) {

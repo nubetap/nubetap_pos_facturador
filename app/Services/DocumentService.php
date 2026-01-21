@@ -54,6 +54,7 @@ class DocumentService
                 'descuentos' => $data['descuentos'] ?? [],
                 'anticipos' => $data['anticipos'] ?? [],
                 'redondeo' => $data['redondeo'] ?? 0,
+                'total_esperado' => $data['total_esperado'] ?? null,
             ];
 
             \Log::info('=== DATOS GLOBALES PARA CALCULAR TOTALES ===', [
@@ -151,6 +152,7 @@ class DocumentService
                 'descuentos' => $data['descuentos'] ?? [],
                 'anticipos' => $data['anticipos'] ?? [],
                 'redondeo' => $data['redondeo'] ?? 0,
+                'total_esperado' => $data['total_esperado'] ?? null,
             ];
 
             // Procesar detalles según tipo de operación si se están actualizando
@@ -368,6 +370,7 @@ class DocumentService
                 'descuentos' => $data['descuentos'] ?? [],
                 'anticipos' => $data['anticipos'] ?? [],
                 'redondeo' => $data['redondeo'] ?? 0,
+                'total_esperado' => $data['total_esperado'] ?? null,
             ];
             
             // Calcular totales automáticamente (esto modifica $data['detalles'] por referencia)
@@ -821,10 +824,26 @@ class DocumentService
             }
         }
 
-        // Aplicar redondeo si existe
-        if (isset($globalData['redondeo'])) {
+        // Aplicar redondeo si existe (explícito o calculado automáticamente)
+        // IMPORTANTE: Solo aplicar redondeo explícito si es distinto de 0
+        if (isset($globalData['redondeo']) && $globalData['redondeo'] != 0) {
+            // Redondeo explícito enviado por el cliente
             $totals['redondeo'] = $globalData['redondeo'];
             $totals['mto_imp_venta'] += $totals['redondeo'];
+        } elseif (isset($globalData['total_esperado']) && $globalData['total_esperado'] !== null) {
+            // Calcular redondeo automático basado en total_esperado
+            // Esto permite que el sistema cliente (ej: Nubetap) envíe el total
+            // que el cliente pagó, y la API ajusta la diferencia como redondeo
+            $totalEsperado = round((float) $globalData['total_esperado'], 2);
+            $totalCalculado = round($totals['mto_imp_venta'], 2);
+            $diferencia = round($totalEsperado - $totalCalculado, 2);
+
+            // SUNAT permite redondeo de hasta ±1.00
+            if (abs($diferencia) <= 1.00 && $diferencia != 0) {
+                $totals['redondeo'] = $diferencia;
+                $totals['mto_imp_venta'] = $totalEsperado;
+            }
+            // Si diferencia es 0, no hay nada que hacer
         }
 
         // Redondear totales finales a 2 decimales para evitar errores de precisión
@@ -976,8 +995,9 @@ class DocumentService
             'descuentos' => $data['descuentos'] ?? [],
             'anticipos' => $data['anticipos'] ?? [],
             'redondeo' => $data['redondeo'] ?? 0,
+            'total_esperado' => $data['total_esperado'] ?? null,
         ];
-        
+
         // Procesar detalles para completar campos de tributos
         $detalles = $data['detalles'];
         $totals = $this->calculateTotals($detalles, $globalData); // Esto completa los campos faltantes en los detalles
@@ -1332,10 +1352,11 @@ class DocumentService
                 'descuentos' => $data['descuentos'] ?? [],
                 'anticipos' => $data['anticipos'] ?? [],
                 'redondeo' => $data['redondeo'] ?? 0,
+                'total_esperado' => $data['total_esperado'] ?? null,
             ];
 
             $this->calculateTotals($detalles, $globalData);
-            
+
             // Calcular totales
             $valorVenta = array_sum(array_column($detalles, 'mto_valor_venta'));
             $mtoOperGravadas = 0;
@@ -1454,10 +1475,11 @@ class DocumentService
                 'descuentos' => $data['descuentos'] ?? [],
                 'anticipos' => $data['anticipos'] ?? [],
                 'redondeo' => $data['redondeo'] ?? 0,
+                'total_esperado' => $data['total_esperado'] ?? null,
             ];
-            
+
             $this->calculateTotals($detalles, $globalData);
-            
+
             // Calcular totales
             $valorVenta = array_sum(array_column($detalles, 'mto_valor_venta'));
             $mtoOperGravadas = 0;

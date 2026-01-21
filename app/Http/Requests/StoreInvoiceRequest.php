@@ -108,6 +108,11 @@ class StoreInvoiceRequest extends FormRequest
             'documentos_relacionados' => 'nullable|array',
             'datos_adicionales' => 'nullable|array',
             'usuario_creacion' => 'nullable|string|max:100',
+
+            // Total esperado para cálculo automático de redondeo
+            // Si se envía, la API calculará la diferencia con el total calculado
+            // y la aplicará como redondeo (máximo ±1.00 según SUNAT)
+            'total_esperado' => 'nullable|numeric|min:0',
         ];
     }
 

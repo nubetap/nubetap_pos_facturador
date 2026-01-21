@@ -363,27 +363,12 @@ class PdfService
 
     protected function calculateInvoiceTotals($invoice): array
     {
-        $detalles = $this->safeJsonDecode($invoice->detalles ?? $invoice->detalles_json ?? '[]');
-        
-        $subtotal = 0;
-        $igv = 0;
-        $total = 0;
-
-        if (count($detalles) > 0) {
-            foreach ($detalles as $detalle) {
-                if (!is_array($detalle)) continue;
-                
-                $cantidad = $detalle['cantidad'] ?? 0;
-                $valorUnitario = $detalle['mto_valor_unitario'] ?? 0;
-                $valorVenta = $detalle['mto_valor_venta'] ?? ($cantidad * $valorUnitario);
-                $igvDetalle = $detalle['igv'] ?? 0;
-                
-                $subtotal += $valorVenta;
-                $igv += $igvDetalle;
-            }
-        }
-
-        $total = $subtotal + $igv;
+        // Usar los valores ya calculados y guardados en el documento
+        // Esto incluye el redondeo aplicado automáticamente
+        $subtotal = $invoice->mto_oper_gravadas ?? 0;
+        $igv = $invoice->mto_igv ?? 0;
+        // IMPORTANTE: Usar mto_imp_venta que ya tiene el redondeo aplicado
+        $total = $invoice->mto_imp_venta ?? ($subtotal + $igv);
 
         return [
             'subtotal' => $subtotal,
