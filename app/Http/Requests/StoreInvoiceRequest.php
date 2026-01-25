@@ -19,6 +19,7 @@ class StoreInvoiceRequest extends FormRequest
             'company_id' => 'required|exists:companies,id',
             'branch_id' => 'required|exists:branches,id',
             'serie' => 'required|string|max:4',
+            'correlativo' => 'nullable|integer|min:1|max:99999999', // Correlativo desde Django
             'fecha_emision' => 'required|date',
             'fecha_vencimiento' => 'nullable|date|after_or_equal:fecha_emision',
             'moneda' => 'required|string|in:PEN,USD',

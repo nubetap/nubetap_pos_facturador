@@ -45,9 +45,33 @@ class DocumentService
             // Crear o buscar cliente
             $client = $this->getOrCreateClient($data['client']);
             
-            // Obtener siguiente correlativo
+            // Obtener correlativo: usar el enviado por Django o auto-generar
             $serie = $data['serie'];
-            $correlativo = $branch->getNextCorrelative('01', $serie);
+            $tipoDocumento = '01';
+            
+            if (isset($data['correlativo']) && !empty($data['correlativo'])) {
+                // Correlativo enviado desde Django - usarlo directamente
+                $correlativoNumero = (int) $data['correlativo'];
+                $correlativo = str_pad((string) $correlativoNumero, 6, '0', STR_PAD_LEFT);
+                
+                // Sincronizar tabla correlatives de PHP para mantener consistencia
+                $this->syncCorrelativeFromExternal($branch, $tipoDocumento, $serie, $correlativoNumero);
+                
+                Log::info('Usando correlativo externo (Django) para factura', [
+                    'serie' => $serie,
+                    'correlativo' => $correlativo,
+                    'branch_id' => $branch->id
+                ]);
+            } else {
+                // Sin correlativo externo - generar automáticamente (compatibilidad)
+                $correlativo = $branch->getNextCorrelative($tipoDocumento, $serie);
+                
+                Log::info('Correlativo auto-generado para factura', [
+                    'serie' => $serie,
+                    'correlativo' => $correlativo,
+                    'branch_id' => $branch->id
+                ]);
+            }
             
             // Preparar datos globales para cálculos
             $globalData = [
@@ -361,9 +385,33 @@ class DocumentService
             // Crear o buscar cliente
             $client = $this->getOrCreateClient($data['client']);
             
-            // Obtener siguiente correlativo
+            // Obtener correlativo: usar el enviado por Django o auto-generar
             $serie = $data['serie'];
-            $correlativo = $branch->getNextCorrelative('03', $serie);
+            $tipoDocumento = '03';
+            
+            if (isset($data['correlativo']) && !empty($data['correlativo'])) {
+                // Correlativo enviado desde Django - usarlo directamente
+                $correlativoNumero = (int) $data['correlativo'];
+                $correlativo = str_pad((string) $correlativoNumero, 6, '0', STR_PAD_LEFT);
+                
+                // Sincronizar tabla correlatives de PHP para mantener consistencia
+                $this->syncCorrelativeFromExternal($branch, $tipoDocumento, $serie, $correlativoNumero);
+                
+                Log::info('Usando correlativo externo (Django)', [
+                    'serie' => $serie,
+                    'correlativo' => $correlativo,
+                    'branch_id' => $branch->id
+                ]);
+            } else {
+                // Sin correlativo externo - generar automáticamente (compatibilidad)
+                $correlativo = $branch->getNextCorrelative($tipoDocumento, $serie);
+                
+                Log::info('Correlativo auto-generado', [
+                    'serie' => $serie,
+                    'correlativo' => $correlativo,
+                    'branch_id' => $branch->id
+                ]);
+            }
             
             // Preparar datos globales para cálculos
             $globalData = [
@@ -515,6 +563,49 @@ class DocumentService
                 ]
             ];
         }
+    }
+
+    /**
+     * Sincroniza la tabla correlatives de PHP con el correlativo recibido desde Django.
+     * Esto mantiene la consistencia entre ambos sistemas.
+     * Solo actualiza si el correlativo recibido es mayor al actual.
+     */
+    protected function syncCorrelativeFromExternal(Branch $branch, string $tipoDocumento, string $serie, int $correlativoNumero): void
+    {
+        $correlative = $branch->correlatives()
+            ->where('tipo_documento', $tipoDocumento)
+            ->where('serie', $serie)
+            ->first();
+
+        if (!$correlative) {
+            // Serie no existe en PHP - crearla con el correlativo de Django
+            $correlative = $branch->correlatives()->create([
+                'tipo_documento' => $tipoDocumento,
+                'serie' => $serie,
+                'correlativo_actual' => $correlativoNumero,
+            ]);
+            
+            Log::info('Serie creada desde correlativo externo', [
+                'branch_id' => $branch->id,
+                'tipo_documento' => $tipoDocumento,
+                'serie' => $serie,
+                'correlativo_actual' => $correlativoNumero
+            ]);
+        } elseif ($correlativoNumero > $correlative->correlativo_actual) {
+            // Actualizar solo si el correlativo de Django es mayor
+            $oldCorrelativo = $correlative->correlativo_actual;
+            $correlative->correlativo_actual = $correlativoNumero;
+            $correlative->save();
+            
+            Log::info('Correlativo sincronizado desde Django', [
+                'branch_id' => $branch->id,
+                'serie' => $serie,
+                'correlativo_anterior' => $oldCorrelativo,
+                'correlativo_nuevo' => $correlativoNumero
+            ]);
+        }
+        // Si el correlativo de Django es menor o igual, no hacer nada
+        // Esto previene desincronización por retries
     }
 
     protected function getOrCreateClient(array $clientData): Client

@@ -18,6 +18,7 @@ class StoreBoletaRequest extends FormRequest
             'company_id' => 'required|exists:companies,id',
             'branch_id' => 'required|exists:branches,id',
             'serie' => 'required|string|max:4',
+            'correlativo' => 'nullable|integer|min:1|max:99999999', // Correlativo desde Django
             'fecha_emision' => 'required|date',
             'ubl_version' => 'nullable|string|max:5',
             'tipo_operacion' => 'nullable|string|max:4',
