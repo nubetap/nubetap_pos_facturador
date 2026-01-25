@@ -392,7 +392,7 @@ class DocumentService
             if (isset($data['correlativo']) && !empty($data['correlativo'])) {
                 // Correlativo enviado desde Django - usarlo directamente
                 $correlativoNumero = (int) $data['correlativo'];
-                $correlativo = str_pad((string) $correlativoNumero, 6, '0', STR_PAD_LEFT);
+                $correlativo = str_pad((string) $correlativoNumero, 8, '0', STR_PAD_LEFT);
                 
                 // Sincronizar tabla correlatives de PHP para mantener consistencia
                 $this->syncCorrelativeFromExternal($branch, $tipoDocumento, $serie, $correlativoNumero);
