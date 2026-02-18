@@ -54,6 +54,8 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'consulta_url' => env('CONSULTA_URL', 'https://nubetap.com/consultas'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

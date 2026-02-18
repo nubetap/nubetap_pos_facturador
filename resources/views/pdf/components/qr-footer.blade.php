@@ -26,7 +26,7 @@
         @endif
         
         <div class="hash-section">
-            Consulte su comprobante en: {{ config('app.url', 'https://mi-empresa.com') }}
+            Consulte su comprobante en: {{ config('app.consulta_url', 'https://nubetap.com/consultas') }}
         </div>
     </div>
 @endif
