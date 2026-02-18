@@ -150,6 +150,47 @@ class InvoiceController extends Controller
         }
     }
 
+    /**
+     * Firmar XML de factura sin enviar a SUNAT.
+     * Genera el XML firmado, lo guarda en S3 y extrae el codigo_hash.
+     */
+    public function signXml($id): JsonResponse
+    {
+        try {
+            $invoice = $this->invoiceRepository->findWithRelations($id);
+
+            if (!$invoice) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Factura no encontrada'
+                ], 404);
+            }
+
+            $result = $this->documentService->signXml($invoice, 'invoice');
+
+            if ($result['success']) {
+                return response()->json([
+                    'success' => true,
+                    'data' => new InvoiceResource($result['document']->load(['company', 'branch', 'client'])),
+                    'message' => 'XML firmado correctamente'
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'data' => $result['document'],
+                'message' => 'Error al firmar XML: ' . ($result['error']->message ?? 'Error desconocido'),
+                'error_code' => $result['error']->code ?? 'UNKNOWN'
+            ], 400);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al firmar XML de factura: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function sendToSunat($id): JsonResponse
     {
         try {

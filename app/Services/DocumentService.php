@@ -463,34 +463,94 @@ class DocumentService
         });
     }
 
+    /**
+     * Firma el XML del documento sin enviarlo a SUNAT.
+     * Guarda el XML firmado en S3 y el codigo_hash en BD.
+     */
+    public function signXml($document, string $documentType): array
+    {
+        try {
+            // Si ya tiene XML firmado, retornar sin refirmar
+            if ($document->xml_path && $document->codigo_hash) {
+                return [
+                    'success' => true,
+                    'document' => $document,
+                ];
+            }
+
+            $company = $document->company;
+            $greenterService = new GreenterService($company, $this->storageService);
+
+            $documentData = $this->prepareDocumentData($document, $documentType);
+
+            $greenterDocument = $this->createGreenterDocument($greenterService, $documentData, $documentType);
+
+            if (!$greenterDocument) {
+                throw new Exception('No se pudo crear el documento para Greenter');
+            }
+
+            $xmlSigned = $greenterService->getXmlSigned($greenterDocument);
+
+            if (!$xmlSigned) {
+                throw new Exception('No se pudo firmar el XML');
+            }
+
+            // Guardar XML en S3
+            $xmlPath = $this->fileService->saveXml($document, $xmlSigned);
+            $document->xml_path = $xmlPath;
+            $document->xml_url = $this->storageService->getDocumentUrl($xmlPath);
+
+            // Extraer hash del XML firmado
+            $hash = $this->extractHashFromXml($xmlSigned);
+            if ($hash) {
+                $document->codigo_hash = $hash;
+            }
+
+            $document->save();
+
+            return [
+                'success' => true,
+                'document' => $document,
+            ];
+
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'document' => $document,
+                'error' => (object)[
+                    'code' => 'XML_SIGN_ERROR',
+                    'message' => $e->getMessage()
+                ]
+            ];
+        }
+    }
+
+    /**
+     * Crea el objeto Greenter según el tipo de documento.
+     */
+    protected function createGreenterDocument(GreenterService $greenterService, array $documentData, string $documentType)
+    {
+        return match ($documentType) {
+            'invoice', 'boleta' => $greenterService->createInvoice($documentData),
+            'credit_note', 'debit_note' => $greenterService->createNote($documentData),
+            default => null,
+        };
+    }
+
     public function sendToSunat($document, string $documentType): array
     {
         try {
             $company = $document->company;
             $greenterService = new GreenterService($company, $this->storageService);
-            
-            // Preparar datos para Greenter
+
             $documentData = $this->prepareDocumentData($document, $documentType);
-            
-            // Crear documento Greenter
-            $greenterDocument = null;
-            switch ($documentType) {
-                case 'invoice':
-                    $greenterDocument = $greenterService->createInvoice($documentData);
-                    break;
-                case 'boleta':
-                    $greenterDocument = $greenterService->createInvoice($documentData); // Boleta usa Invoice
-                    break;
-                case 'credit_note':
-                case 'debit_note':
-                    $greenterDocument = $greenterService->createNote($documentData);
-                    break;
-            }
-            
+
+            $greenterDocument = $this->createGreenterDocument($greenterService, $documentData, $documentType);
+
             if (!$greenterDocument) {
                 throw new Exception('No se pudo crear el documento para Greenter');
             }
-            
+
             // Enviar a SUNAT (XML se firma antes del envío)
             $result = $greenterService->sendDocument($greenterDocument);
 

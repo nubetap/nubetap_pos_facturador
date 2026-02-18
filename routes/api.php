@@ -201,6 +201,8 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::put('/{id}', [InvoiceController::class, 'update'])->name('api.v1.invoices.update');
         Route::patch('/{id}', [InvoiceController::class, 'update'])->name('api.v1.invoices.patch');
         Route::get('/{id}', [InvoiceController::class, 'show'])->name('api.v1.invoices.show');
+        Route::post('/{id}/sign-xml', [InvoiceController::class, 'signXml'])
+            ->name('api.v1.invoices.sign-xml');
         Route::post('/{id}/send-sunat', [InvoiceController::class, 'sendToSunat'])
             ->middleware('throttle:sunat-send')
             ->name('api.v1.invoices.send-sunat');
@@ -220,6 +222,7 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::get('/{id}', [BoletaController::class, 'show']);
         Route::put('/{id}', [BoletaController::class, 'update']);
         Route::patch('/{id}', [BoletaController::class, 'update']);
+        Route::post('/{id}/sign-xml', [BoletaController::class, 'signXml']);
         Route::post('/{id}/send-sunat', [BoletaController::class, 'sendToSunat'])
             ->middleware('throttle:sunat-send');
         Route::get('/{id}/download-xml', [BoletaController::class, 'downloadXml']);

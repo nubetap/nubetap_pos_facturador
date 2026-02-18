@@ -115,6 +115,37 @@ class BoletaController extends Controller
     }
 
     /**
+     * Firmar XML de boleta sin enviar a SUNAT.
+     * Genera el XML firmado, lo guarda en S3 y extrae el codigo_hash.
+     */
+    public function signXml(string $id): JsonResponse
+    {
+        try {
+            $boleta = Boleta::with(['company', 'branch', 'client'])->findOrFail($id);
+
+            $result = $this->documentService->signXml($boleta, 'boleta');
+
+            if ($result['success']) {
+                return response()->json([
+                    'success' => true,
+                    'data' => $result['document']->load(['company', 'branch', 'client']),
+                    'message' => 'XML firmado correctamente'
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'data' => $result['document'],
+                'message' => 'Error al firmar XML: ' . ($result['error']->message ?? 'Error desconocido'),
+                'error_code' => $result['error']->code ?? 'UNKNOWN'
+            ], 400);
+
+        } catch (Exception $e) {
+            return $this->errorResponse('Error al firmar XML de boleta', $e);
+        }
+    }
+
+    /**
      * Enviar boleta a SUNAT
      */
     public function sendToSunat(string $id): JsonResponse
