@@ -176,7 +176,7 @@ class PdfService
             'fecha_vencimiento' => $invoice->fecha_vencimiento ? $invoice->fecha_vencimiento->format('d/m/Y') : null,
             'tipo_documento_nombre' => 'FACTURA ELECTRÓNICA',
             'qr_code' => $qrBase64,
-            'hash' => $invoice->hash_cdr ?? $invoice->valor_resumen ?? '',
+            'hash' => $invoice->codigo_hash ?? '',
             'total_en_letras' => $this->numeroALetras($invoice->mto_imp_venta ?? 0),
         ];
     }
@@ -225,7 +225,7 @@ class PdfService
             'fecha_emision' => $boleta->fecha_emision->format('d/m/Y'),
             'tipo_documento_nombre' => 'BOLETA DE VENTA ELECTRÓNICA',
             'qr_code' => $qrBase64,
-            'hash' => $boleta->hash_cdr ?? $boleta->valor_resumen ?? '',
+            'hash' => $boleta->codigo_hash ?? '',
             'total_en_letras' => $this->numeroALetras($boleta->mto_imp_venta ?? 0),
         ];
     }
@@ -282,7 +282,7 @@ class PdfService
                 'descripcion' => $creditNote->des_motivo,
             ],
             'qr_code' => $qrBase64,
-            'hash' => $creditNote->hash_cdr ?? $creditNote->valor_resumen ?? '',
+            'hash' => $creditNote->codigo_hash ?? '',
             'total_en_letras' => $this->numeroALetras($creditNote->mto_imp_venta ?? 0),
         ];
     }
@@ -339,7 +339,7 @@ class PdfService
                 'descripcion' => $debitNote->des_motivo,
             ],
             'qr_code' => $qrBase64,
-            'hash' => $debitNote->hash_cdr ?? $debitNote->valor_resumen ?? '',
+            'hash' => $debitNote->codigo_hash ?? '',
             'total_en_letras' => $this->numeroALetras($debitNote->mto_imp_venta ?? 0),
         ];
     }

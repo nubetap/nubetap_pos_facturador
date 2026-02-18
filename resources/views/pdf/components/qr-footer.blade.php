@@ -21,7 +21,7 @@
         
         @if(isset($hash) && $hash)
             <div class="hash-section">
-                <strong>HASH CDR:</strong> {{ $hash }}
+                <strong>HASH:</strong> {{ $hash }}
             </div>
         @endif
         
