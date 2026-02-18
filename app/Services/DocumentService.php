@@ -491,21 +491,27 @@ class DocumentService
                 throw new Exception('No se pudo crear el documento para Greenter');
             }
             
-            // Enviar a SUNAT
+            // Enviar a SUNAT (XML se firma antes del envío)
             $result = $greenterService->sendDocument($greenterDocument);
-            
-            // Guardar archivos
+
+            // Guardar XML siempre que exista (se genera antes del envío a SUNAT)
             if ($result['xml']) {
                 $xmlPath = $this->fileService->saveXml($document, $result['xml']);
                 $document->xml_path = $xmlPath;
                 $document->xml_url = $this->storageService->getDocumentUrl($xmlPath);
+
+                // Extraer hash del XML firmado (disponible sin importar respuesta SUNAT)
+                $hash = $this->extractHashFromXml($result['xml']);
+                if ($hash) {
+                    $document->codigo_hash = $hash;
+                }
             }
 
             if ($result['success'] && $result['cdr_zip']) {
                 $cdrPath = $this->fileService->saveCdr($document, $result['cdr_zip']);
                 $document->cdr_path = $cdrPath;
                 $document->cdr_url = $this->storageService->getDocumentUrl($cdrPath);
-                
+
                 $document->estado_sunat = 'ACEPTADO';
                 $document->respuesta_sunat = json_encode([
                     'id' => $result['cdr_response']->getId(),
@@ -513,39 +519,39 @@ class DocumentService
                     'description' => $result['cdr_response']->getDescription(),
                     'notes' => $result['cdr_response']->getNotes(),
                 ]);
-                
-                // Obtener hash del XML
-                $xmlSigned = $greenterService->getXmlSigned($greenterDocument);
-                if ($xmlSigned) {
-                    $document->codigo_hash = $this->extractHashFromXml($xmlSigned);
-                }
             } else {
-                $document->estado_sunat = 'RECHAZADO';
-                
-                // Manejar diferentes tipos de error
+                // Diferenciar entre rechazo de SUNAT y error de conexión
                 $errorCode = 'UNKNOWN';
                 $errorMessage = 'Error desconocido';
-                
+
                 if (is_object($result['error'])) {
                     if (method_exists($result['error'], 'getCode')) {
                         $errorCode = $result['error']->getCode();
                     } elseif (property_exists($result['error'], 'code')) {
                         $errorCode = $result['error']->code;
                     }
-                    
+
                     if (method_exists($result['error'], 'getMessage')) {
                         $errorMessage = $result['error']->getMessage();
                     } elseif (property_exists($result['error'], 'message')) {
                         $errorMessage = $result['error']->message;
                     }
                 }
-                
+
+                // EXCEPTION = error de conexión/timeout → PENDIENTE (se puede reintentar)
+                // Otro código = SUNAT rechazó explícitamente → RECHAZADO
+                if ($errorCode === 'EXCEPTION' || $errorCode === 'XML_SIGN_ERROR') {
+                    $document->estado_sunat = 'PENDIENTE';
+                } else {
+                    $document->estado_sunat = 'RECHAZADO';
+                }
+
                 $document->respuesta_sunat = json_encode([
                     'code' => $errorCode,
                     'message' => $errorMessage,
                 ]);
             }
-            
+
             $document->save();
             
             return [

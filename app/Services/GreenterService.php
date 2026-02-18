@@ -604,20 +604,39 @@ class GreenterService
 
     public function sendDocument($document)
     {
+        // Fase 1: Firmar XML antes de enviar (independiente de SUNAT)
+        $xmlSigned = null;
+        try {
+            $xmlSigned = $this->see->getXmlSigned($document);
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'xml' => null,
+                'cdr_response' => null,
+                'cdr_zip' => null,
+                'error' => (object)[
+                    'code' => 'XML_SIGN_ERROR',
+                    'message' => 'Error al firmar XML: ' . $e->getMessage()
+                ]
+            ];
+        }
+
+        // Fase 2: Enviar a SUNAT
         try {
             $result = $this->see->send($document);
-            
+
             return [
                 'success' => $result->isSuccess(),
-                'xml' => $this->see->getFactory()->getLastXml(),
+                'xml' => $this->see->getFactory()->getLastXml() ?? $xmlSigned,
                 'cdr_response' => $result->isSuccess() ? $result->getCdrResponse() : null,
                 'cdr_zip' => $result->isSuccess() ? $result->getCdrZip() : null,
                 'error' => $result->isSuccess() ? null : $result->getError()
             ];
         } catch (Exception $e) {
+            // SUNAT falló pero el XML firmado ya existe
             return [
                 'success' => false,
-                'xml' => null,
+                'xml' => $xmlSigned,
                 'cdr_response' => null,
                 'cdr_zip' => null,
                 'error' => (object)[
