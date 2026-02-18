@@ -88,7 +88,14 @@
                         <td class="value">-{{ $document->moneda }} {{ number_format($document->mto_anticipos, 2) }}</td>
                     </tr>
                 @endif
-                
+
+                @if(isset($document->redondeo) && $document->redondeo != 0)
+                    <tr>
+                        <td class="label">Redondeo:</td>
+                        <td class="value">{{ $document->moneda }} {{ number_format($document->redondeo, 2) }}</td>
+                    </tr>
+                @endif
+
                 <tr class="total-final">
                     <td class="label">TOTAL:</td>
                     <td class="value">{{ $document->moneda }} {{ number_format($document->mto_imp_venta, 2) }}</td>
@@ -134,7 +141,14 @@
                     <td class="value">{{ number_format($document->mto_icbper, 2) }}</td>
                 </tr>
             @endif
-            
+
+            @if(isset($document->redondeo) && $document->redondeo != 0)
+                <tr>
+                    <td class="label">Redondeo:</td>
+                    <td class="value">{{ number_format($document->redondeo, 2) }}</td>
+                </tr>
+            @endif
+
             <tr class="total-final">
                 <td class="label">TOTAL:</td>
                 <td class="value">{{ $document->moneda }} {{ number_format($document->mto_imp_venta, 2) }}</td>

@@ -452,6 +452,7 @@ class DocumentService
                 'total_impuestos' => $totals['total_impuestos'],
                 'sub_total' => $totals['sub_total'],
                 'mto_imp_venta' => $totals['mto_imp_venta'],
+                'redondeo' => $totals['redondeo'],
                 'detalles' => $data['detalles'],
                 'leyendas' => $this->generateLegends($totals['mto_imp_venta'], $data['moneda'] ?? 'PEN', $data),
                 'datos_adicionales' => $data['datos_adicionales'] ?? null,

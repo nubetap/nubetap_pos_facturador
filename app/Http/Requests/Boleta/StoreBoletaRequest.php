@@ -72,6 +72,7 @@ class StoreBoletaRequest extends FormRequest
             'leyendas.*.value' => 'required|string|max:255',
             
             'datos_adicionales' => 'nullable|array',
+            'total_esperado' => 'nullable|numeric|min:0',
             'usuario_creacion' => 'nullable|string|max:100',
         ];
     }
