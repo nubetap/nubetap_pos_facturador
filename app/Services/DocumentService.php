@@ -909,38 +909,28 @@ class DocumentService
                 }
             }
 
-            // Descuentos que afectan base reducen valor_venta y mto_oper_gravadas
+            // Obtener el porcentaje IGV del primer detalle gravado (código 10) o usar 18% por defecto
+            $porcentajeIgvGlobal = 18;
+            foreach ($detalles as $det) {
+                if (isset($det['tip_afe_igv']) && $det['tip_afe_igv'] === '10') {
+                    $porcentajeIgvGlobal = $det['porcentaje_igv'] ?? 18;
+                    break;
+                }
+            }
+
+            // Descuentos que afectan base reducen valor_venta, mto_oper_gravadas y recalculan IGV
             if ($descuentoGlobalAfectaBase > 0) {
                 $totals['mto_oper_gravadas'] -= $descuentoGlobalAfectaBase;
                 $totals['valor_venta'] -= $descuentoGlobalAfectaBase;
+                // Recalcular IGV sobre la base reducida
+                $totals['mto_igv'] = round($totals['mto_oper_gravadas'] * ($porcentajeIgvGlobal / 100), 2);
             }
 
             // Descuentos por anticipo reducen SOLO mto_oper_gravadas (NO valor_venta)
             if ($descuentoAnticipo > 0) {
-                // Obtener el porcentaje IGV del primer detalle gravado (código 10) o usar 18% por defecto
-                $porcentajeIgvGlobal = 18;
-                foreach ($detalles as $det) {
-                    if (isset($det['tip_afe_igv']) && $det['tip_afe_igv'] === '10') {
-                        $porcentajeIgvGlobal = $det['porcentaje_igv'] ?? 18;
-                        break;
-                    }
-                }
-
-                \Log::info('ANTICIPO DETECTADO', [
-                    'descuentoAnticipo' => $descuentoAnticipo,
-                    'mto_oper_gravadas_antes' => $totals['mto_oper_gravadas'],
-                    'mto_igv_antes' => $totals['mto_igv'],
-                    'porcentaje_igv_usado' => $porcentajeIgvGlobal
-                ]);
-
                 $totals['mto_oper_gravadas'] -= $descuentoAnticipo;
-                // Recalcular IGV sobre la base reducida usando el porcentaje configurado (para XML de SUNAT)
-                $totals['mto_igv'] = $totals['mto_oper_gravadas'] * ($porcentajeIgvGlobal / 100);
-
-                \Log::info('ANTICIPO APLICADO', [
-                    'mto_oper_gravadas_despues' => $totals['mto_oper_gravadas'],
-                    'mto_igv_despues' => $totals['mto_igv']
-                ]);
+                // Recalcular IGV sobre la base reducida
+                $totals['mto_igv'] = round($totals['mto_oper_gravadas'] * ($porcentajeIgvGlobal / 100), 2);
             }
         }
 
@@ -1161,18 +1151,11 @@ class DocumentService
         $totals = $this->calculateTotals($detalles, $globalData); // Esto completa los campos faltantes en los detalles
         $data['detalles'] = $detalles;
         
-        // Actualizar SOLO totales para operaciones gratuitas e IVAP
-        // NO sobrescribir mto_igv si descuentos/anticipos no están presentes
+        // Actualizar totales recalculados (calculateTotals ya maneja descuentos y anticipos correctamente)
         $data['mto_oper_gratuitas'] = $totals['mto_oper_gratuitas'];
         $data['mto_igv_gratuitas'] = $totals['mto_igv_gratuitas'];
-
-        // Solo actualizar IGV si NO hay descuentos/anticipos vacíos (para evitar sobrescribir cálculos con anticipos)
-        if (empty($globalData['descuentos']) && empty($globalData['anticipos'])) {
-            $data['mto_igv'] = $totals['mto_igv'];
-            $data['total_impuestos'] = $totals['total_impuestos'];
-        }
-        // Si hay anticipos, usar los valores ya guardados en BD
-
+        $data['mto_igv'] = $totals['mto_igv'];
+        $data['total_impuestos'] = $totals['total_impuestos'];
         $data['mto_base_ivap'] = $totals['mto_base_ivap'];
         $data['mto_ivap'] = $totals['mto_ivap'];
         
