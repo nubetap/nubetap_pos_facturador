@@ -12,6 +12,13 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Log de requests API (controlado por LOG_REQUESTS en .env)
+        if (env('LOG_REQUESTS', false)) {
+            $middleware->api(append: [
+                \App\Http\Middleware\LogRequests::class,
+            ]);
+        }
+
         // Registrar middleware aliases
         $middleware->alias([
             'company.active' => \App\Http\Middleware\EnsureCompanyIsActive::class,
