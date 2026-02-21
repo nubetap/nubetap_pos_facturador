@@ -67,6 +67,13 @@ class UpdateBoletaRequest extends FormRequest
             'leyendas.*.code' => 'required|string|max:4',
             'leyendas.*.value' => 'required|string|max:255',
 
+            // Descuentos globales
+            'descuentos' => 'nullable|array',
+            'descuentos.*.cod_tipo' => 'required_with:descuentos|string|in:00,01,02,03,04',
+            'descuentos.*.factor' => 'required_with:descuentos|numeric|min:0',
+            'descuentos.*.monto' => 'required_with:descuentos|numeric|min:0',
+            'descuentos.*.monto_base' => 'required_with:descuentos|numeric|min:0',
+
             'datos_adicionales' => 'nullable|array',
         ];
     }
