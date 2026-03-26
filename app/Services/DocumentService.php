@@ -43,8 +43,8 @@ class DocumentService
                            ->firstOrFail();
             
             // Crear o buscar cliente
-            $client = $this->getOrCreateClient($data['client']);
-            
+            $client = $this->getOrCreateClient($data['client'], $company->id);
+
             // Obtener correlativo: usar el enviado por Django o auto-generar
             $serie = $data['serie'];
             $tipoDocumento = '01';
@@ -167,7 +167,7 @@ class DocumentService
 
             // Actualizar o mantener cliente
             if (isset($data['client'])) {
-                $client = $this->getOrCreateClient($data['client']);
+                $client = $this->getOrCreateClient($data['client'], $invoice->company_id);
                 $invoice->client_id = $client->id;
             }
 
@@ -291,7 +291,7 @@ class DocumentService
 
             // Actualizar o mantener cliente
             if (isset($data['client'])) {
-                $client = $this->getOrCreateClient($data['client']);
+                $client = $this->getOrCreateClient($data['client'], $boleta->company_id);
                 $boleta->client_id = $client->id;
             }
 
@@ -383,8 +383,8 @@ class DocumentService
                            ->firstOrFail();
             
             // Crear o buscar cliente
-            $client = $this->getOrCreateClient($data['client']);
-            
+            $client = $this->getOrCreateClient($data['client'], $company->id);
+
             // Obtener correlativo: usar el enviado por Django o auto-generar
             $serie = $data['serie'];
             $tipoDocumento = '03';
@@ -675,12 +675,19 @@ class DocumentService
         // Esto previene desincronización por retries
     }
 
-    protected function getOrCreateClient(array $clientData): Client
+    protected function getOrCreateClient(array $clientData, ?int $companyId = null): Client
     {
-        return Client::firstOrCreate([
+        $searchCriteria = [
             'tipo_documento' => $clientData['tipo_documento'],
             'numero_documento' => $clientData['numero_documento'],
-        ], [
+        ];
+
+        if ($companyId) {
+            $searchCriteria['company_id'] = $companyId;
+        }
+
+        return Client::firstOrCreate($searchCriteria, [
+            'company_id' => $companyId,
             'razon_social' => $clientData['razon_social'],
             'nombre_comercial' => $clientData['nombre_comercial'] ?? null,
             'direccion' => $clientData['direccion'] ?? null,
@@ -1457,8 +1464,8 @@ class DocumentService
                            ->firstOrFail();
             
             // Crear o buscar cliente
-            $client = $this->getOrCreateClient($data['client']);
-            
+            $client = $this->getOrCreateClient($data['client'], $company->id);
+
             // Obtener siguiente correlativo
             $serie = $data['serie'];
             $correlativo = $branch->getNextCorrelative('07', $serie);
@@ -1604,8 +1611,8 @@ class DocumentService
                            ->firstOrFail();
             
             // Crear o buscar cliente
-            $client = $this->getOrCreateClient($data['client']);
-            
+            $client = $this->getOrCreateClient($data['client'], $company->id);
+
             // Obtener siguiente correlativo
             $serie = $data['serie'];
             $correlativo = $branch->getNextCorrelative('08', $serie);
@@ -1724,7 +1731,7 @@ class DocumentService
             if (isset($data['destinatario_id'])) {
                 $destinatario = Client::findOrFail($data['destinatario_id']);
             } else {
-                $destinatario = $this->getOrCreateClient($data['destinatario']);
+                $destinatario = $this->getOrCreateClient($data['destinatario'], $company->id);
             }
             
             // Obtener siguiente correlativo automático (ignorar correlativo enviado)
@@ -2428,7 +2435,7 @@ class DocumentService
                            ->firstOrFail();
             
             // Crear o buscar el proveedor
-            $proveedor = $this->getOrCreateClient($data['proveedor']);
+            $proveedor = $this->getOrCreateClient($data['proveedor'], $company->id);
             
             // Obtener siguiente correlativo (tipo '20' para retenciones)
             $serie = $data['serie'];
