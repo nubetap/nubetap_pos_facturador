@@ -24,7 +24,7 @@ class StoreCompanyRequest extends FormRequest
             'provincia' => 'required|string|max:100',
             'departamento' => 'required|string|max:100',
             'telefono' => 'nullable|string|max:20',
-            'email' => 'required|email|max:255',
+            'email' => 'nullable|email|max:255',
             'web' => 'nullable|url|max:255',
             'usuario_sol' => 'required|string|max:50',
             'clave_sol' => 'required|string|max:100',
