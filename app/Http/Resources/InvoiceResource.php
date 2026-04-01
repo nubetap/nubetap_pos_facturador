@@ -57,6 +57,11 @@ class InvoiceResource extends JsonResource
                 'descripcion' => $this->getEstadoDescripcion()
             ],
 
+            // Respuesta SUNAT (raw JSON parseado)
+            'respuesta_sunat' => $this->when($this->respuesta_sunat, function () {
+                return json_decode($this->respuesta_sunat, true);
+            }),
+
             // Relaciones
             'company' => [
                 'id' => $this->company->id,
