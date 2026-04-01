@@ -28,8 +28,8 @@
                     <td>{{ $detalle['descripcion'] ?? '' }}</td>
                     <td>{{ $detalle['unidad'] ?? 'NIU' }}</td>
                     <td>{{ number_format($detalle['cantidad'] ?? 0, 2) }}</td>
-                    <td>{{ number_format($detalle['mto_valor_unitario'] ?? 0, 2) }}</td>
-                    <td>{{ number_format($detalle['mto_valor_venta'] ?? 0, 2) }}</td>
+                    <td>{{ number_format($detalle['mto_precio_unitario'] ?? $detalle['mto_valor_unitario'] ?? 0, 2) }}</td>
+                    <td>{{ number_format(($detalle['mto_precio_unitario'] ?? $detalle['mto_valor_unitario'] ?? 0) * ($detalle['cantidad'] ?? 0), 2) }}</td>
                 </tr>
             @endforeach
 
@@ -65,8 +65,8 @@
                     <td class="text-center">{{ $detalle['codigo'] ?? '-' }}</td>
                     <td class="text-left">{{ Str::limit($detalle['descripcion'] ?? '', 20) }}</td>
                     <td class="text-center">{{ number_format($detalle['cantidad'] ?? 0, 2) }}</td>
-                    <td class="text-right">{{ number_format($detalle['mto_valor_unitario'] ?? 0, 2) }}</td>
                     <td class="text-right">{{ number_format($detalle['mto_precio_unitario'] ?? $detalle['mto_valor_unitario'] ?? 0, 2) }}</td>
+                    <td class="text-right">{{ number_format(($detalle['mto_precio_unitario'] ?? $detalle['mto_valor_unitario'] ?? 0) * ($detalle['cantidad'] ?? 0), 2) }}</td>
                 </tr>
             @endforeach
         </tbody>
