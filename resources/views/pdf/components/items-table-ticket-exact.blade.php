@@ -20,8 +20,8 @@
             <div class="item-cant">{{ number_format($detalle['cantidad'] ?? 1, 0) }}</div>
             <div class="item-um">{{ $detalle['unidad'] ?? 'UNIDAD' }}</div>
             <div class="item-cod">{{ $detalle['codigo'] ?? '9810007005004' }}</div>
-            <div class="item-precio">{{ number_format($detalle['mto_valor_unitario'] ?? 20.00, 2) }}</div>
-            <div class="item-total">{{ number_format($detalle['mto_valor_venta'] ?? 20.00, 2) }}</div>
+            <div class="item-precio">{{ number_format($detalle['mto_precio_unitario'] ?? $detalle['mto_valor_unitario'] ?? 20.00, 2) }}</div>
+            <div class="item-total">{{ number_format(($detalle['mto_precio_unitario'] ?? $detalle['mto_valor_unitario'] ?? 20.00) * ($detalle['cantidad'] ?? 1), 2) }}</div>
         </div>
         <div class="item-descripcion">{{ strtoupper($detalle['descripcion'] ?? 'POLO BASICO COLOR SMALL') }}</div>
     @empty

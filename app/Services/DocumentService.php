@@ -48,15 +48,29 @@ class DocumentService
             // Obtener correlativo: usar el enviado por Django o auto-generar
             $serie = $data['serie'];
             $tipoDocumento = '01';
-            
+
             if (isset($data['correlativo']) && !empty($data['correlativo'])) {
                 // Correlativo enviado desde Django - usarlo directamente
                 $correlativoNumero = (int) $data['correlativo'];
                 $correlativo = str_pad((string) $correlativoNumero, 6, '0', STR_PAD_LEFT);
-                
+
+                // Protección contra duplicados: si ya existe, retornar el existente
+                $existing = Invoice::where('company_id', $company->id)
+                    ->where('serie', $serie)
+                    ->where('correlativo', $correlativo)
+                    ->first();
+
+                if ($existing) {
+                    Log::info('Factura duplicada detectada, retornando existente', [
+                        'invoice_id' => $existing->id,
+                        'numero' => $existing->numero_completo,
+                    ]);
+                    return $existing;
+                }
+
                 // Sincronizar tabla correlatives de PHP para mantener consistencia
                 $this->syncCorrelativeFromExternal($branch, $tipoDocumento, $serie, $correlativoNumero);
-                
+
                 Log::info('Usando correlativo externo (Django) para factura', [
                     'serie' => $serie,
                     'correlativo' => $correlativo,
@@ -65,7 +79,7 @@ class DocumentService
             } else {
                 // Sin correlativo externo - generar automáticamente (compatibilidad)
                 $correlativo = $branch->getNextCorrelative($tipoDocumento, $serie);
-                
+
                 Log::info('Correlativo auto-generado para factura', [
                     'serie' => $serie,
                     'correlativo' => $correlativo,
@@ -388,15 +402,29 @@ class DocumentService
             // Obtener correlativo: usar el enviado por Django o auto-generar
             $serie = $data['serie'];
             $tipoDocumento = '03';
-            
+
             if (isset($data['correlativo']) && !empty($data['correlativo'])) {
                 // Correlativo enviado desde Django - usarlo directamente
                 $correlativoNumero = (int) $data['correlativo'];
                 $correlativo = str_pad((string) $correlativoNumero, 8, '0', STR_PAD_LEFT);
-                
+
+                // Protección contra duplicados: si ya existe, retornar el existente
+                $existing = Boleta::where('company_id', $company->id)
+                    ->where('serie', $serie)
+                    ->where('correlativo', $correlativo)
+                    ->first();
+
+                if ($existing) {
+                    Log::info('Boleta duplicada detectada, retornando existente', [
+                        'boleta_id' => $existing->id,
+                        'numero' => $existing->numero_completo,
+                    ]);
+                    return $existing;
+                }
+
                 // Sincronizar tabla correlatives de PHP para mantener consistencia
                 $this->syncCorrelativeFromExternal($branch, $tipoDocumento, $serie, $correlativoNumero);
-                
+
                 Log::info('Usando correlativo externo (Django)', [
                     'serie' => $serie,
                     'correlativo' => $correlativo,
@@ -405,7 +433,7 @@ class DocumentService
             } else {
                 // Sin correlativo externo - generar automáticamente (compatibilidad)
                 $correlativo = $branch->getNextCorrelative($tipoDocumento, $serie);
-                
+
                 Log::info('Correlativo auto-generado', [
                     'serie' => $serie,
                     'correlativo' => $correlativo,
@@ -1466,9 +1494,31 @@ class DocumentService
             // Crear o buscar cliente
             $client = $this->getOrCreateClient($data['client'], $company->id);
 
-            // Obtener siguiente correlativo
+            // Obtener correlativo: usar el enviado por Django o auto-generar
             $serie = $data['serie'];
-            $correlativo = $branch->getNextCorrelative('07', $serie);
+
+            if (isset($data['correlativo']) && !empty($data['correlativo'])) {
+                $correlativoNumero = (int) $data['correlativo'];
+                $correlativo = str_pad((string) $correlativoNumero, 8, '0', STR_PAD_LEFT);
+
+                // Protección contra duplicados: si ya existe, retornar el existente
+                $existing = CreditNote::where('company_id', $company->id)
+                    ->where('serie', $serie)
+                    ->where('correlativo', $correlativo)
+                    ->first();
+
+                if ($existing) {
+                    Log::info('Nota de crédito duplicada detectada, retornando existente', [
+                        'credit_note_id' => $existing->id,
+                        'numero' => $existing->numero_completo,
+                    ]);
+                    return $existing;
+                }
+
+                $this->syncCorrelativeFromExternal($branch, '07', $serie, $correlativoNumero);
+            } else {
+                $correlativo = $branch->getNextCorrelative('07', $serie);
+            }
 
             // Procesar detalles y calcular totales
             $detalles = $data['detalles'];
