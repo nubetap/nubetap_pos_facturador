@@ -390,9 +390,9 @@ class ConsultaCpeService
      */
     protected function getApiHost(): string
     {
-        return $this->company->modo_produccion 
-            ? 'https://api.sunat.gob.pe'
-            : 'https://api-beta.sunat.gob.pe';
+        return $this->company->modo_produccion
+            ? 'https://api.sunat.gob.pe/v1'
+            : 'https://api-beta.sunat.gob.pe/v1';
     }
 
     /**
