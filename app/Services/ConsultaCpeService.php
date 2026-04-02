@@ -337,6 +337,55 @@ class ConsultaCpeService
     }
 
     /**
+     * Procesar respuesta SOAP de consulta CDR
+     */
+    protected function procesarEstadosSoap($result): array
+    {
+        $estados = [
+            'estadocpe' => $result->isSuccess() ? '1' : '0',
+            'codigo' => $result->getCode(),
+            'mensaje' => $result->getMessage(),
+            'consulta_fecha' => date('Y-m-d H:i:s'),
+        ];
+
+        $estados['descripcion_estado'] = $this->interpretarEstadoCpe($estados['estadocpe']);
+
+        return $estados;
+    }
+
+    /**
+     * Guardar CDR obtenido de la consulta
+     */
+    protected function guardarCdr($documento, string $cdrZip): ?string
+    {
+        try {
+            $fileService = app(FileService::class);
+            $path = $fileService->saveCdr($documento, $cdrZip);
+            $documento->update(['cdr_path' => $path]);
+            return $path;
+        } catch (Exception $e) {
+            Log::error('Error al guardar CDR de consulta: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Obtener credenciales SOL de la empresa
+     */
+    protected function obtenerCredencialesSol(): ?array
+    {
+        if (empty($this->company->usuario_sol) || empty($this->company->clave_sol)) {
+            return null;
+        }
+
+        return [
+            'ruc' => $this->company->ruc,
+            'usuario' => $this->company->usuario_sol,
+            'clave' => $this->company->clave_sol,
+        ];
+    }
+
+    /**
      * Obtener host de API según modo
      */
     protected function getApiHost(): string
