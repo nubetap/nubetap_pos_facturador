@@ -53,10 +53,34 @@ class GreenterService
     protected function initializeSee(): See
     {
         $see = new See();
-        
+
         // Usar configuraciones de la base de datos
         $endpoint = $this->company->getInvoiceEndpoint();
-        
+
+        // AUDITORÍA: Log detallado del endpoint y modo
+        Log::info('=== AUDITORÍA SUNAT ENDPOINT ===', [
+            'company_id' => $this->company->id,
+            'ruc' => $this->company->ruc,
+            'modo_produccion' => $this->company->modo_produccion,
+            'endpoint_resuelto' => $endpoint,
+            'endpoint_produccion_db' => $this->company->endpoint_produccion,
+            'endpoint_beta_db' => $this->company->endpoint_beta,
+            'endpoint_vacio' => empty($endpoint),
+            'usuario_sol' => $this->company->usuario_sol,
+        ]);
+
+        // Si el endpoint está vacío, usar el campo directo de la BD como fallback
+        if (empty($endpoint)) {
+            $endpoint = $this->company->modo_produccion
+                ? $this->company->endpoint_produccion
+                : $this->company->endpoint_beta;
+
+            Log::warning('=== ENDPOINT VACÍO - USANDO FALLBACK DIRECTO ===', [
+                'fallback_endpoint' => $endpoint,
+                'modo' => $this->company->modo_produccion ? 'PRODUCCIÓN' : 'BETA',
+            ]);
+        }
+
         $see->setService($endpoint);
         
         // Configurar certificado usando StorageService
@@ -623,7 +647,33 @@ class GreenterService
 
         // Fase 2: Enviar a SUNAT
         try {
+            // AUDITORÍA: Log antes del envío
+            $endpointForLog = $this->company->getInvoiceEndpoint();
+            Log::info('=== AUDITORÍA ENVÍO SUNAT ===', [
+                'endpoint_resuelto' => $endpointForLog,
+                'endpoint_produccion_db' => $this->company->endpoint_produccion,
+                'endpoint_beta_db' => $this->company->endpoint_beta,
+                'ruc' => $this->company->ruc,
+                'modo_produccion' => $this->company->modo_produccion,
+                'documento_tipo' => get_class($document),
+            ]);
+
             $result = $this->see->send($document);
+
+            // AUDITORÍA: Log después del envío
+            $cdrDescription = null;
+            $cdrCode = null;
+            if ($result->isSuccess() && $result->getCdrResponse()) {
+                $cdrDescription = $result->getCdrResponse()->getDescription();
+                $cdrCode = $result->getCdrResponse()->getCode();
+            }
+
+            Log::info('=== AUDITORÍA RESPUESTA SUNAT ===', [
+                'success' => $result->isSuccess(),
+                'cdr_code' => $cdrCode,
+                'cdr_description' => $cdrDescription,
+                'error' => !$result->isSuccess() ? ($result->getError() ? $result->getError()->getMessage() : 'sin detalle') : null,
+            ]);
 
             return [
                 'success' => $result->isSuccess(),
@@ -634,6 +684,12 @@ class GreenterService
             ];
         } catch (Exception $e) {
             // SUNAT falló pero el XML firmado ya existe
+            Log::error('=== AUDITORÍA EXCEPCIÓN SUNAT ===', [
+                'error' => $e->getMessage(),
+                'endpoint_resuelto' => $this->company->getInvoiceEndpoint(),
+                'modo_produccion' => $this->company->modo_produccion,
+            ]);
+
             return [
                 'success' => false,
                 'xml' => $xmlSigned,
