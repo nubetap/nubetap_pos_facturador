@@ -57,29 +57,14 @@ class GreenterService
         // Usar configuraciones de la base de datos
         $endpoint = $this->company->getInvoiceEndpoint();
 
-        // AUDITORÍA: Log detallado del endpoint y modo
-        Log::info('=== AUDITORÍA SUNAT ENDPOINT ===', [
+        // Log del endpoint resuelto
+        Log::info('SUNAT endpoint configurado', [
             'company_id' => $this->company->id,
             'ruc' => $this->company->ruc,
             'modo_produccion' => $this->company->modo_produccion,
-            'endpoint_resuelto' => $endpoint,
-            'endpoint_produccion_db' => $this->company->endpoint_produccion,
-            'endpoint_beta_db' => $this->company->endpoint_beta,
-            'endpoint_vacio' => empty($endpoint),
+            'endpoint' => $endpoint,
             'usuario_sol' => $this->company->usuario_sol,
         ]);
-
-        // Si el endpoint está vacío, usar el campo directo de la BD como fallback
-        if (empty($endpoint)) {
-            $endpoint = $this->company->modo_produccion
-                ? $this->company->endpoint_produccion
-                : $this->company->endpoint_beta;
-
-            Log::warning('=== ENDPOINT VACÍO - USANDO FALLBACK DIRECTO ===', [
-                'fallback_endpoint' => $endpoint,
-                'modo' => $this->company->modo_produccion ? 'PRODUCCIÓN' : 'BETA',
-            ]);
-        }
 
         $see->setService($endpoint);
         
