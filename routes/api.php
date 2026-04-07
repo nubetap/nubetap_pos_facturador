@@ -219,6 +219,10 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
     Route::prefix('boletas')->group(function () {
         Route::get('/', [BoletaController::class, 'index']);
         Route::post('/', [BoletaController::class, 'store']);
+
+        // TEMPORAL: migración batch stage→prod (debe estar antes de rutas /{id})
+        Route::post('/force-resend-batch', [BoletaController::class, 'forceResendBatch']);
+
         Route::get('/{id}', [BoletaController::class, 'show']);
         Route::put('/{id}', [BoletaController::class, 'update']);
         Route::patch('/{id}', [BoletaController::class, 'update']);
