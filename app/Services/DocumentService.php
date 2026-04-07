@@ -297,7 +297,9 @@ class DocumentService
             $boleta = Boleta::findOrFail($id);
 
             // Verificar que se pueda actualizar (solo RECHAZADO o PENDIENTE)
-            if (!in_array($boleta->estado_sunat, ['RECHAZADO', 'PENDIENTE'])) {
+            // TEMPORAL: force_update salta esta validación para migración stage→prod
+            $forceUpdate = $data['force_update'] ?? false;
+            if (!$forceUpdate && !in_array($boleta->estado_sunat, ['RECHAZADO', 'PENDIENTE'])) {
                 throw new \Exception(
                     "Solo se pueden actualizar boletas en estado RECHAZADO o PENDIENTE. Estado actual: {$boleta->estado_sunat}"
                 );
@@ -377,10 +379,15 @@ class DocumentService
                 'cdr_path' => null,
             ]);
 
-            Log::info('Boleta actualizada para reenvío', [
+            $logTag = $forceUpdate ? '[FORCE_UPDATE]' : '';
+            Log::info("{$logTag} Boleta actualizada para reenvío", [
                 'boleta_id' => $boleta->id,
                 'numero' => $boleta->numero_completo,
-                'estado_anterior' => $boleta->getOriginal('estado_sunat')
+                'estado_anterior' => $boleta->getOriginal('estado_sunat'),
+                'force_update' => $forceUpdate,
+                'mto_igv' => $boleta->mto_igv,
+                'mto_oper_gravadas' => $boleta->mto_oper_gravadas,
+                'mto_imp_venta' => $boleta->mto_imp_venta,
             ]);
 
             return $boleta->fresh();
