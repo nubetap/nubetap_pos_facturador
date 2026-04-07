@@ -148,34 +148,42 @@ class BoletaController extends Controller
     /**
      * Enviar boleta a SUNAT
      */
-    public function sendToSunat(string $id): JsonResponse
+    public function sendToSunat(string $id, Request $request): JsonResponse
     {
         try {
             $boleta = Boleta::with(['company', 'branch', 'client'])->findOrFail($id);
 
+            $forceResend = $request->boolean('force_resend', false);
+
             // Validar que no haya sido ACEPTADO (permitir reenvío de RECHAZADOS y PENDIENTES)
-            if ($boleta->estado_sunat === 'ACEPTADO') {
+            // TEMPORAL: force_resend=true permite reenviar boletas ACEPTADAS en STAGE a SUNAT PROD
+            if ($boleta->estado_sunat === 'ACEPTADO' && !$forceResend) {
                 return response()->json([
                     'success' => false,
                     'message' => 'La boleta ya fue aceptada por SUNAT'
                 ], 400);
             }
 
-            // Log del reenvío si es RECHAZADO
-            if ($boleta->estado_sunat === 'RECHAZADO') {
-                Log::info('Reenviando boleta rechazada a SUNAT', [
+            // Log del reenvío
+            if ($boleta->estado_sunat === 'RECHAZADO' || $forceResend) {
+                Log::info('Reenviando boleta a SUNAT', [
                     'boleta_id' => $boleta->id,
                     'numero' => $boleta->numero_completo,
-                    'rechazo_anterior' => $boleta->respuesta_sunat
+                    'estado_anterior' => $boleta->estado_sunat,
+                    'force_resend' => $forceResend,
+                    'respuesta_anterior' => $boleta->respuesta_sunat
                 ]);
             }
 
             $result = $this->documentService->sendToSunat($boleta, 'boleta');
-            
+
             if ($result['success']) {
+                // Regenerar PDF con el nuevo codigo_hash de producción
+                $this->documentService->generateBoletaPdf($result['document']);
+
                 return response()->json([
                     'success' => true,
-                    'data' => $result['document']->load(['company', 'branch', 'client']),
+                    'data' => $result['document']->fresh()->load(['company', 'branch', 'client']),
                     'message' => 'Boleta enviada exitosamente a SUNAT'
                 ]);
             }
