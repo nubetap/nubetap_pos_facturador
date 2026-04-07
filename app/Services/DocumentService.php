@@ -345,6 +345,20 @@ class DocumentService
                 ];
             }
 
+            if ($forceUpdate) {
+                Log::info('[FORCE_UPDATE] Valores ANTES de actualizar', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'estado_sunat' => $boleta->estado_sunat,
+                    'old_mto_oper_gravadas' => $boleta->mto_oper_gravadas,
+                    'old_mto_igv' => $boleta->mto_igv,
+                    'old_total_impuestos' => $boleta->total_impuestos,
+                    'old_mto_imp_venta' => $boleta->mto_imp_venta,
+                    'old_porcentaje_igv' => $boleta->detalles[0]['porcentaje_igv'] ?? 'N/A',
+                    'new_porcentaje_igv' => $data['detalles'][0]['porcentaje_igv'] ?? 'N/A',
+                ]);
+            }
+
             // Actualizar campos de la boleta
             $boleta->update([
                 'fecha_emision' => $data['fecha_emision'] ?? $boleta->fecha_emision,
@@ -379,16 +393,24 @@ class DocumentService
                 'cdr_path' => null,
             ]);
 
-            $logTag = $forceUpdate ? '[FORCE_UPDATE]' : '';
-            Log::info("{$logTag} Boleta actualizada para reenvío", [
-                'boleta_id' => $boleta->id,
-                'numero' => $boleta->numero_completo,
-                'estado_anterior' => $boleta->getOriginal('estado_sunat'),
-                'force_update' => $forceUpdate,
-                'mto_igv' => $boleta->mto_igv,
-                'mto_oper_gravadas' => $boleta->mto_oper_gravadas,
-                'mto_imp_venta' => $boleta->mto_imp_venta,
-            ]);
+            if ($forceUpdate) {
+                Log::info('[FORCE_UPDATE] Valores DESPUÉS de actualizar', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'estado_sunat' => 'PENDIENTE',
+                    'new_mto_oper_gravadas' => $totals['mto_oper_gravadas'],
+                    'new_mto_igv' => $totals['mto_igv'],
+                    'new_total_impuestos' => $totals['total_impuestos'],
+                    'new_mto_imp_venta' => $totals['mto_imp_venta'],
+                    'new_sub_total' => $totals['sub_total'],
+                ]);
+            } else {
+                Log::info('Boleta actualizada para reenvío', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'estado_anterior' => $boleta->getOriginal('estado_sunat'),
+                ]);
+            }
 
             return $boleta->fresh();
         });
