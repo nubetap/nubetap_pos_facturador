@@ -405,12 +405,29 @@ trait HasCompanyConfigurations
     public function getSunatEndpoints(string $serviceType = 'facturacion'): array
     {
         $environment = $this->modo_produccion ? 'produccion' : 'beta';
-        
-        return $this->getConfig('service_endpoints', $environment, $serviceType, [
+
+        // Primero intentar company_configurations (override opcional)
+        $configEndpoints = $this->getConfig('service_endpoints', $environment, $serviceType, null);
+
+        if ($configEndpoints && !empty($configEndpoints['endpoint'] ?? '')) {
+            return $configEndpoints;
+        }
+
+        // Fuente principal: campos directos del modelo Company
+        if ($serviceType === 'facturacion') {
+            $endpoint = $this->modo_produccion ? $this->endpoint_produccion : $this->endpoint_beta;
+            return [
+                'endpoint' => $endpoint,
+                'wsdl' => $endpoint ? str_replace('billService', 'billService?wsdl', $endpoint) : '',
+                'timeout' => $this->modo_produccion ? 45 : 30,
+            ];
+        }
+
+        return [
             'endpoint' => '',
             'wsdl' => '',
-            'timeout' => 30
-        ]);
+            'timeout' => 30,
+        ];
     }
 
     /**
