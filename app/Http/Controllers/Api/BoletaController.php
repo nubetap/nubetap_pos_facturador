@@ -175,22 +175,74 @@ class BoletaController extends Controller
                 ]);
             }
 
+            if ($forceResend) {
+                Log::info('[FORCE_RESEND] Inicio envío a SUNAT PROD', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'modo_produccion' => $boleta->company->modo_produccion,
+                    'endpoint' => $boleta->company->getInvoiceEndpoint(),
+                    'xml_url_anterior' => $boleta->xml_url,
+                    'cdr_url_anterior' => $boleta->cdr_url,
+                    'pdf_url_anterior' => $boleta->pdf_url,
+                    'hash_anterior' => $boleta->codigo_hash,
+                ]);
+            }
+
             $result = $this->documentService->sendToSunat($boleta, 'boleta');
 
             if ($result['success']) {
+                $doc = $result['document'];
+
+                if ($forceResend) {
+                    Log::info('[FORCE_RESEND] SUNAT PROD aceptó boleta', [
+                        'boleta_id' => $doc->id,
+                        'numero' => $doc->numero_completo,
+                        'estado_sunat' => $doc->estado_sunat,
+                        'hash_nuevo' => $doc->codigo_hash,
+                        'xml_url_nuevo' => $doc->xml_url,
+                        'cdr_url_nuevo' => $doc->cdr_url,
+                        'respuesta_sunat' => $doc->respuesta_sunat,
+                    ]);
+                }
+
                 // Regenerar PDF con el nuevo codigo_hash de producción
-                $this->documentService->generateBoletaPdf($result['document']);
+                $this->documentService->generateBoletaPdf($doc);
+                $doc->refresh();
+
+                if ($forceResend) {
+                    Log::info('[FORCE_RESEND] PDF regenerado', [
+                        'boleta_id' => $doc->id,
+                        'numero' => $doc->numero_completo,
+                        'pdf_url_nuevo' => $doc->pdf_url,
+                        'pdf_path' => $doc->pdf_path,
+                    ]);
+                }
 
                 return response()->json([
                     'success' => true,
-                    'data' => $result['document']->fresh()->load(['company', 'branch', 'client']),
+                    'data' => $doc->load(['company', 'branch', 'client']),
                     'message' => 'Boleta enviada exitosamente a SUNAT'
+                ]);
+            }
+
+            if ($forceResend) {
+                Log::error('[FORCE_RESEND] Error al enviar a SUNAT PROD', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'estado_sunat' => $result['document']->estado_sunat,
+                    'error' => $result['error'],
+                    'respuesta_sunat' => $result['document']->respuesta_sunat,
                 ]);
             }
 
             return $this->handleSunatError($result);
 
         } catch (Exception $e) {
+            Log::error('[FORCE_RESEND] Excepción no controlada', [
+                'boleta_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return $this->errorResponse('Error interno al enviar a SUNAT', $e);
         }
     }
