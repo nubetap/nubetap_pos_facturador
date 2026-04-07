@@ -2451,7 +2451,13 @@ class DocumentService
         try {
             logger()->info("Generando PDF para documento: {$document->id}, tipo: {$documentType}, formato: {$format}");
             
-            $document = $document->load(['company', 'branch', 'destinatario']);
+            $relations = ['company', 'branch'];
+            if ($documentType === 'dispatch-guide') {
+                $relations[] = 'destinatario';
+            } elseif (method_exists($document, 'client')) {
+                $relations[] = 'client';
+            }
+            $document = $document->load($relations);
             
             $pdfContent = match($documentType) {
                 'invoice' => $this->pdfService->generateInvoicePdf($document, $format),
