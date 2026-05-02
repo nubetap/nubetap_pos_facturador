@@ -15,6 +15,8 @@ class UpdateBoletaRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // TEMPORAL: flag para migración stage→prod, permite actualizar boletas ACEPTADAS
+            'force_update' => 'sometimes|boolean',
             'fecha_emision' => 'sometimes|date',
             'ubl_version' => 'nullable|string|max:5',
             'tipo_operacion' => 'nullable|string|max:4',
@@ -90,7 +92,9 @@ class UpdateBoletaRequest extends FormRequest
             }
 
             // Solo se puede actualizar si está RECHAZADO o PENDIENTE
-            if (!in_array($boleta->estado_sunat, ['RECHAZADO', 'PENDIENTE'])) {
+            // TEMPORAL: force_update salta esta validación para migración stage→prod
+            $forceUpdate = $this->boolean('force_update', false);
+            if (!$forceUpdate && !in_array($boleta->estado_sunat, ['RECHAZADO', 'PENDIENTE'])) {
                 $validator->errors()->add('estado_sunat',
                     'Solo se pueden actualizar boletas con estado RECHAZADO o PENDIENTE. Estado actual: ' . $boleta->estado_sunat
                 );

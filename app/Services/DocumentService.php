@@ -297,7 +297,9 @@ class DocumentService
             $boleta = Boleta::findOrFail($id);
 
             // Verificar que se pueda actualizar (solo RECHAZADO o PENDIENTE)
-            if (!in_array($boleta->estado_sunat, ['RECHAZADO', 'PENDIENTE'])) {
+            // TEMPORAL: force_update salta esta validación para migración stage→prod
+            $forceUpdate = $data['force_update'] ?? false;
+            if (!$forceUpdate && !in_array($boleta->estado_sunat, ['RECHAZADO', 'PENDIENTE'])) {
                 throw new \Exception(
                     "Solo se pueden actualizar boletas en estado RECHAZADO o PENDIENTE. Estado actual: {$boleta->estado_sunat}"
                 );
@@ -343,6 +345,20 @@ class DocumentService
                 ];
             }
 
+            if ($forceUpdate) {
+                Log::info('[FORCE_UPDATE] Valores ANTES de actualizar', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'estado_sunat' => $boleta->estado_sunat,
+                    'old_mto_oper_gravadas' => $boleta->mto_oper_gravadas,
+                    'old_mto_igv' => $boleta->mto_igv,
+                    'old_total_impuestos' => $boleta->total_impuestos,
+                    'old_mto_imp_venta' => $boleta->mto_imp_venta,
+                    'old_porcentaje_igv' => $boleta->detalles[0]['porcentaje_igv'] ?? 'N/A',
+                    'new_porcentaje_igv' => $data['detalles'][0]['porcentaje_igv'] ?? 'N/A',
+                ]);
+            }
+
             // Actualizar campos de la boleta
             $boleta->update([
                 'fecha_emision' => $data['fecha_emision'] ?? $boleta->fecha_emision,
@@ -377,11 +393,24 @@ class DocumentService
                 'cdr_path' => null,
             ]);
 
-            Log::info('Boleta actualizada para reenvío', [
-                'boleta_id' => $boleta->id,
-                'numero' => $boleta->numero_completo,
-                'estado_anterior' => $boleta->getOriginal('estado_sunat')
-            ]);
+            if ($forceUpdate) {
+                Log::info('[FORCE_UPDATE] Valores DESPUÉS de actualizar', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'estado_sunat' => 'PENDIENTE',
+                    'new_mto_oper_gravadas' => $totals['mto_oper_gravadas'],
+                    'new_mto_igv' => $totals['mto_igv'],
+                    'new_total_impuestos' => $totals['total_impuestos'],
+                    'new_mto_imp_venta' => $totals['mto_imp_venta'],
+                    'new_sub_total' => $totals['sub_total'],
+                ]);
+            } else {
+                Log::info('Boleta actualizada para reenvío', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'estado_anterior' => $boleta->getOriginal('estado_sunat'),
+                ]);
+            }
 
             return $boleta->fresh();
         });
@@ -2422,7 +2451,13 @@ class DocumentService
         try {
             logger()->info("Generando PDF para documento: {$document->id}, tipo: {$documentType}, formato: {$format}");
             
-            $document = $document->load(['company', 'branch', 'destinatario']);
+            $relations = ['company', 'branch'];
+            if ($documentType === 'dispatch-guide') {
+                $relations[] = 'destinatario';
+            } elseif (method_exists($document, 'client')) {
+                $relations[] = 'client';
+            }
+            $document = $document->load($relations);
             
             $pdfContent = match($documentType) {
                 'invoice' => $this->pdfService->generateInvoicePdf($document, $format),

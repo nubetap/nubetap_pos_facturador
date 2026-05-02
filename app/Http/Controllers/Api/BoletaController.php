@@ -148,41 +148,101 @@ class BoletaController extends Controller
     /**
      * Enviar boleta a SUNAT
      */
-    public function sendToSunat(string $id): JsonResponse
+    public function sendToSunat(string $id, Request $request): JsonResponse
     {
         try {
             $boleta = Boleta::with(['company', 'branch', 'client'])->findOrFail($id);
 
+            $forceResend = $request->boolean('force_resend', false);
+
             // Validar que no haya sido ACEPTADO (permitir reenvío de RECHAZADOS y PENDIENTES)
-            if ($boleta->estado_sunat === 'ACEPTADO') {
+            // TEMPORAL: force_resend=true permite reenviar boletas ACEPTADAS en STAGE a SUNAT PROD
+            if ($boleta->estado_sunat === 'ACEPTADO' && !$forceResend) {
                 return response()->json([
                     'success' => false,
                     'message' => 'La boleta ya fue aceptada por SUNAT'
                 ], 400);
             }
 
-            // Log del reenvío si es RECHAZADO
-            if ($boleta->estado_sunat === 'RECHAZADO') {
-                Log::info('Reenviando boleta rechazada a SUNAT', [
+            // Log del reenvío
+            if ($boleta->estado_sunat === 'RECHAZADO' || $forceResend) {
+                Log::info('Reenviando boleta a SUNAT', [
                     'boleta_id' => $boleta->id,
                     'numero' => $boleta->numero_completo,
-                    'rechazo_anterior' => $boleta->respuesta_sunat
+                    'estado_anterior' => $boleta->estado_sunat,
+                    'force_resend' => $forceResend,
+                    'respuesta_anterior' => $boleta->respuesta_sunat
+                ]);
+            }
+
+            if ($forceResend) {
+                Log::info('[FORCE_RESEND] Inicio envío a SUNAT PROD', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'modo_produccion' => $boleta->company->modo_produccion,
+                    'endpoint' => $boleta->company->getInvoiceEndpoint(),
+                    'xml_url_anterior' => $boleta->xml_url,
+                    'cdr_url_anterior' => $boleta->cdr_url,
+                    'pdf_url_anterior' => $boleta->pdf_url,
+                    'hash_anterior' => $boleta->codigo_hash,
                 ]);
             }
 
             $result = $this->documentService->sendToSunat($boleta, 'boleta');
-            
+
             if ($result['success']) {
+                $doc = $result['document'];
+
+                if ($forceResend) {
+                    Log::info('[FORCE_RESEND] SUNAT PROD aceptó boleta', [
+                        'boleta_id' => $doc->id,
+                        'numero' => $doc->numero_completo,
+                        'estado_sunat' => $doc->estado_sunat,
+                        'hash_nuevo' => $doc->codigo_hash,
+                        'xml_url_nuevo' => $doc->xml_url,
+                        'cdr_url_nuevo' => $doc->cdr_url,
+                        'respuesta_sunat' => $doc->respuesta_sunat,
+                    ]);
+                }
+
+                // Regenerar PDF con el nuevo codigo_hash de producción
+                $this->documentService->generateBoletaPdf($doc);
+                $doc->refresh();
+
+                if ($forceResend) {
+                    Log::info('[FORCE_RESEND] PDF regenerado', [
+                        'boleta_id' => $doc->id,
+                        'numero' => $doc->numero_completo,
+                        'pdf_url_nuevo' => $doc->pdf_url,
+                        'pdf_path' => $doc->pdf_path,
+                    ]);
+                }
+
                 return response()->json([
                     'success' => true,
-                    'data' => $result['document']->load(['company', 'branch', 'client']),
+                    'data' => $doc->load(['company', 'branch', 'client']),
                     'message' => 'Boleta enviada exitosamente a SUNAT'
+                ]);
+            }
+
+            if ($forceResend) {
+                Log::error('[FORCE_RESEND] Error al enviar a SUNAT PROD', [
+                    'boleta_id' => $boleta->id,
+                    'numero' => $boleta->numero_completo,
+                    'estado_sunat' => $result['document']->estado_sunat,
+                    'error' => $result['error'],
+                    'respuesta_sunat' => $result['document']->respuesta_sunat,
                 ]);
             }
 
             return $this->handleSunatError($result);
 
         } catch (Exception $e) {
+            Log::error('[FORCE_RESEND] Excepción no controlada', [
+                'boleta_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return $this->errorResponse('Error interno al enviar a SUNAT', $e);
         }
     }
@@ -362,6 +422,228 @@ class BoletaController extends Controller
 
         } catch (Exception $e) {
             return $this->errorResponse('Error al obtener boletas pendientes', $e);
+        }
+    }
+
+    /**
+     * TEMPORAL: Endpoint batch para migración stage→prod.
+     * Recibe un lote de boletas con detalles recalculados, las actualiza,
+     * crea resúmenes diarios por fecha y los envía a SUNAT PROD.
+     */
+    public function forceResendBatch(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'company_id' => 'required|exists:companies,id',
+                'branch_id' => 'required|exists:branches,id',
+                'boletas' => 'required|array|min:1',
+                'boletas.*.id' => 'required|integer|exists:boletas,id',
+                'boletas.*.detalles' => 'required|array|min:1',
+                'boletas.*.detalles.*.codigo' => 'required|string',
+                'boletas.*.detalles.*.descripcion' => 'required|string',
+                'boletas.*.detalles.*.cantidad' => 'required|numeric|min:0.01',
+                'boletas.*.detalles.*.unidad' => 'required|string',
+                'boletas.*.detalles.*.mto_valor_unitario' => 'required|numeric|min:0',
+                'boletas.*.detalles.*.porcentaje_igv' => 'required|numeric',
+                'boletas.*.detalles.*.tip_afe_igv' => 'required|string',
+            ]);
+
+            $companyId = $validated['company_id'];
+            $branchId = $validated['branch_id'];
+            $results = [
+                'updated' => [],
+                'update_errors' => [],
+                'summaries' => [],
+                'summary_errors' => [],
+            ];
+
+            Log::info('[BATCH_RESEND] Inicio de migración stage→prod', [
+                'company_id' => $companyId,
+                'branch_id' => $branchId,
+                'total_boletas' => count($validated['boletas']),
+            ]);
+
+            // PASO 1: Actualizar cada boleta con los nuevos detalles
+            foreach ($validated['boletas'] as $boletaData) {
+                try {
+                    $boleta = $this->documentService->updateBoleta($boletaData['id'], [
+                        'force_update' => true,
+                        'detalles' => $boletaData['detalles'],
+                    ]);
+                    $results['updated'][] = [
+                        'id' => $boleta->id,
+                        'numero' => $boleta->numero_completo,
+                        'mto_imp_venta' => $boleta->mto_imp_venta,
+                        'mto_igv' => $boleta->mto_igv,
+                    ];
+                } catch (Exception $e) {
+                    $results['update_errors'][] = [
+                        'id' => $boletaData['id'],
+                        'error' => $e->getMessage(),
+                    ];
+                    Log::error('[BATCH_RESEND] Error al actualizar boleta', [
+                        'boleta_id' => $boletaData['id'],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            Log::info('[BATCH_RESEND] Boletas actualizadas', [
+                'ok' => count($results['updated']),
+                'errores' => count($results['update_errors']),
+            ]);
+
+            // Si ninguna boleta se actualizó, no continuar
+            if (empty($results['updated'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se pudo actualizar ninguna boleta',
+                    'results' => $results,
+                ], 400);
+            }
+
+            // PASO 2: Agrupar boletas actualizadas por fecha_emision y crear resúmenes
+            $updatedIds = array_column($results['updated'], 'id');
+            $boletas = Boleta::whereIn('id', $updatedIds)
+                ->where('estado_sunat', 'PENDIENTE')
+                ->whereNull('daily_summary_id')
+                ->get();
+
+            $boletasPorFecha = $boletas->groupBy(function ($b) {
+                return $b->fecha_emision->format('Y-m-d');
+            });
+
+            Log::info('[BATCH_RESEND] Boletas agrupadas por fecha', [
+                'fechas' => $boletasPorFecha->keys()->toArray(),
+                'cantidades' => $boletasPorFecha->map->count()->toArray(),
+            ]);
+
+            foreach ($boletasPorFecha as $fecha => $boletasDelDia) {
+                try {
+                    // Crear resumen diario
+                    $summary = $this->documentService->createSummaryFromBoletas([
+                        'company_id' => $companyId,
+                        'branch_id' => $branchId,
+                        'fecha_resumen' => $fecha,
+                        'usuario_creacion' => 'batch_migration_stage_to_prod',
+                    ]);
+
+                    Log::info('[BATCH_RESEND] Resumen diario creado', [
+                        'summary_id' => $summary->id,
+                        'fecha' => $fecha,
+                        'boletas_count' => $boletasDelDia->count(),
+                        'correlativo' => $summary->correlativo,
+                    ]);
+
+                    // Enviar resumen a SUNAT
+                    $sendResult = $this->documentService->sendDailySummaryToSunat($summary);
+
+                    if ($sendResult['success']) {
+                        Log::info('[BATCH_RESEND] Resumen enviado a SUNAT', [
+                            'summary_id' => $summary->id,
+                            'ticket' => $sendResult['ticket'],
+                        ]);
+
+                        // Esperar 3 segundos y consultar estado
+                        sleep(3);
+                        $statusResult = $this->documentService->checkSummaryStatus($sendResult['document']);
+
+                        if ($statusResult['success']) {
+                            Log::info('[BATCH_RESEND] Resumen ACEPTADO por SUNAT', [
+                                'summary_id' => $summary->id,
+                                'fecha' => $fecha,
+                            ]);
+
+                            // Regenerar PDFs de las boletas del resumen
+                            $pdfResults = [];
+                            foreach ($boletasDelDia as $boleta) {
+                                try {
+                                    $boleta->refresh();
+                                    $boleta->update(['estado_sunat' => 'ACEPTADO']);
+                                    $this->documentService->generateBoletaPdf($boleta);
+                                    $boleta->refresh();
+                                    $pdfResults[] = [
+                                        'id' => $boleta->id,
+                                        'numero' => $boleta->numero_completo,
+                                        'pdf_url' => $boleta->pdf_url,
+                                        'estado_sunat' => $boleta->estado_sunat,
+                                    ];
+                                } catch (Exception $e) {
+                                    $pdfResults[] = [
+                                        'id' => $boleta->id,
+                                        'numero' => $boleta->numero_completo,
+                                        'pdf_error' => $e->getMessage(),
+                                    ];
+                                }
+                            }
+
+                            $results['summaries'][] = [
+                                'summary_id' => $summary->id,
+                                'fecha' => $fecha,
+                                'estado' => 'ACEPTADO',
+                                'ticket' => $sendResult['ticket'],
+                                'boletas_count' => $boletasDelDia->count(),
+                                'boletas' => $pdfResults,
+                            ];
+                        } else {
+                            // SUNAT aún procesando o error
+                            $results['summaries'][] = [
+                                'summary_id' => $summary->id,
+                                'fecha' => $fecha,
+                                'estado' => 'PROCESANDO',
+                                'ticket' => $sendResult['ticket'],
+                                'boletas_count' => $boletasDelDia->count(),
+                                'message' => 'SUNAT aún procesando. Usar POST /boletas/summary/' . $summary->id . '/check-status para reintentar.',
+                            ];
+
+                            Log::info('[BATCH_RESEND] Resumen aún procesando', [
+                                'summary_id' => $summary->id,
+                                'ticket' => $sendResult['ticket'],
+                            ]);
+                        }
+                    } else {
+                        $results['summary_errors'][] = [
+                            'fecha' => $fecha,
+                            'summary_id' => $summary->id,
+                            'error' => $sendResult['error'],
+                        ];
+                        Log::error('[BATCH_RESEND] Error al enviar resumen', [
+                            'summary_id' => $summary->id,
+                            'fecha' => $fecha,
+                            'error' => $sendResult['error'],
+                        ]);
+                    }
+                } catch (Exception $e) {
+                    $results['summary_errors'][] = [
+                        'fecha' => $fecha,
+                        'error' => $e->getMessage(),
+                    ];
+                    Log::error('[BATCH_RESEND] Error al crear/enviar resumen', [
+                        'fecha' => $fecha,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            Log::info('[BATCH_RESEND] Proceso completado', [
+                'boletas_actualizadas' => count($results['updated']),
+                'boletas_con_error' => count($results['update_errors']),
+                'resumenes_procesados' => count($results['summaries']),
+                'resumenes_con_error' => count($results['summary_errors']),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Proceso de migración completado',
+                'results' => $results,
+            ]);
+
+        } catch (Exception $e) {
+            Log::error('[BATCH_RESEND] Error general', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return $this->errorResponse('Error en migración batch', $e);
         }
     }
 
