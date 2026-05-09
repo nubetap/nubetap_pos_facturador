@@ -209,17 +209,20 @@ class ValidapseClient
     /**
      * Normaliza el envoltorio de respuesta de ValidaPSE.
      *
-     * Respuesta esperada (según docs):
-     *  {
-     *    "isSuccess": bool,
-     *    "estado": int,
-     *    "codigo_hash": "...",
-     *    "mensaje": "...",
-     *    "xml": "<base64>",
-     *    "external_id": "..."
-     *  }
+     * Respuesta éxito:
+     *  { "isSuccess": true, "estado": 200, "codigo_hash": "...",
+     *    "mensaje": "...", "xml": "<base64>", "external_id": "..." }
      *
-     * Si isSuccess=false con HTTP 200, lanza ValidapseException::rejected.
+     * Respuesta error (incluye rechazo de SUNAT):
+     *  { "isSuccess": false, "estado": 501, "code": "3111",
+     *    "errores": "El monto de afectación de IGV...", "xml": "" }
+     *
+     * Notar:
+     *  - El campo de mensaje en error puede ser "errores" (plural ES),
+     *    "mensaje", "message", "errors" o "error". Probamos todos.
+     *  - SUNAT trae el código de rechazo en `code` (ej. "3111").
+     *  - Si isSuccess=false con HTTP 200, lanza ValidapseException::rejected
+     *    con el mensaje + code SUNAT concatenados para diagnóstico inmediato.
      *
      * @return array{isSuccess: bool, estado: int, codigo_hash: string|null, mensaje: string|null, xml: string|null, external_id: string|null, raw: array<string,mixed>}
      */
@@ -235,11 +238,18 @@ class ValidapseClient
         }
 
         $isSuccess = (bool) ($body['isSuccess'] ?? false);
-        $mensaje = $body['mensaje'] ?? ($body['message'] ?? null);
+        $mensaje = self::extractMessage($body);
 
         if (!$isSuccess) {
+            // Concatenar code SUNAT al mensaje si está disponible.
+            // ej. "[3111] El monto de afectación de IGV por linea debe ser ≠ 0.00"
+            $sunatCode = $body['code'] ?? null;
+            $fullMessage = $mensaje ?? 'ValidaPSE rechazó sin detalle';
+            if ($sunatCode) {
+                $fullMessage = "[SUNAT {$sunatCode}] {$fullMessage}";
+            }
             throw ValidapseException::rejected(
-                $mensaje ?? 'ValidaPSE devolvió isSuccess=false sin mensaje',
+                $fullMessage,
                 ['nombre_archivo' => $nombreArchivo, 'body' => $body],
             );
         }
@@ -255,6 +265,21 @@ class ValidapseClient
         ];
     }
 
+    /**
+     * Busca el mensaje legible en una respuesta de ValidaPSE,
+     * probando los nombres de campo conocidos en orden.
+     */
+    private static function extractMessage(array $body): ?string
+    {
+        foreach (['mensaje', 'message', 'errores', 'errors', 'error'] as $key) {
+            $value = $body[$key] ?? null;
+            if (is_string($value) && $value !== '') {
+                return $value;
+            }
+        }
+        return null;
+    }
+
     private function safeBody(Response $response): mixed
     {
         try {
@@ -268,11 +293,7 @@ class ValidapseClient
     {
         $body = $this->safeBody($response);
         if (is_array($body)) {
-            foreach (['mensaje', 'message', 'errors', 'error'] as $k) {
-                if (!empty($body[$k]) && is_string($body[$k])) {
-                    return $body[$k];
-                }
-            }
+            return self::extractMessage($body);
         }
         return null;
     }
