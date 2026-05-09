@@ -48,6 +48,11 @@ class UpdateCompanyRequest extends FormRequest
             'modo_produccion' => 'sometimes|nullable|in:true,false,1,0',
             'logo_path' => 'sometimes|nullable|file|mimes:png,jpeg,jpg|max:2048',
             'activo' => 'sometimes|boolean',
+            // Proveedor CPE alterno (NRUS): cambiar de greenter↔validapse,
+            // o refrescar el token y empresa_id sincronizados desde Django.
+            'cpe_provider' => 'sometimes|nullable|in:greenter,validapse',
+            'validapse_empresa_id' => 'sometimes|nullable|integer|min:1',
+            'validapse_token_acceso' => 'sometimes|nullable|string|max:500',
         ];
     }
 }

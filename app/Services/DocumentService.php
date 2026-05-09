@@ -16,6 +16,9 @@ use App\Models\VoidedDocument;
 use App\Services\GreenterService;
 use App\Services\FileService;
 use App\Services\PdfService;
+use App\Services\Cpe\UnsignedXmlBuilder;
+use App\Services\Cpe\ValidapseClient;
+use App\Exceptions\ValidapseException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Exception;
@@ -536,6 +539,14 @@ class DocumentService
             }
 
             $company = $document->company;
+
+            // ValidaPSE no soporta el flujo solo-firma en este spike.
+            // El POS debe llamar directamente a sendToSunat para empresas ValidaPSE,
+            // que firma + envía en una sola operación atómica.
+            if ($guard = $this->guardValidapseUnsupported($company, $document, 'signXml')) {
+                return $guard;
+            }
+
             $greenterService = new GreenterService($company, $this->storageService);
 
             $documentData = $this->prepareDocumentData($document, $documentType);
@@ -606,6 +617,13 @@ class DocumentService
 
             if (!$greenterDocument) {
                 throw new Exception('No se pudo crear el documento para Greenter');
+            }
+
+            // BRANCH: empresas con cpe_provider == 'validapse' (NRUS) no firman
+            // localmente con Greenter. ValidaPSE firma + envía a SUNAT.
+            // El path Greenter clásico queda intacto debajo.
+            if ($company->usesValidapse()) {
+                return $this->sendToSunatViaValidapse($document, $greenterDocument, $company);
             }
 
             // Enviar a SUNAT (XML se firma antes del envío)
@@ -685,6 +703,132 @@ class DocumentService
                     'code' => 'EXCEPTION',
                     'message' => $e->getMessage()
                 ]
+            ];
+        }
+    }
+
+    /**
+     * Envío vía ValidaPSE (cpe_provider == 'validapse', clientes NRUS).
+     *
+     * Flujo:
+     *   1. Construir XML UBL SIN FIRMAR con UnsignedXmlBuilder.
+     *   2. Llamar /api/cpe/generarenviar (o -demo) en ValidaPSE.
+     *      ValidaPSE firma con su certificado PSE y envía a SUNAT.
+     *   3. Persistir XML firmado, hash y estado en el Document.
+     *
+     * El CDR NO se trae síncrono — sigue el patrón asíncrono de Greenter
+     * (mismo SLA del worker que polling cdr).
+     *
+     * Doc: docs/INTEGRACION-VALIDAPSE-NRUS.md (Paso 10)
+     */
+    protected function sendToSunatViaValidapse($document, $greenterDocument, Company $company): array
+    {
+        try {
+            $token = $company->validapse_token_acceso;
+            if (empty($token)) {
+                throw new ValidapseException(
+                    userMessage: 'Empresa marcada como ValidaPSE pero sin token sincronizado. Volver a sincronizar desde Django.',
+                    httpStatus: null,
+                    context: ['company_id' => $company->id, 'ruc' => $company->ruc],
+                );
+            }
+
+            $unsignedXml = UnsignedXmlBuilder::build($greenterDocument);
+
+            $nombreArchivo = sprintf(
+                '%s-%s-%s-%s',
+                $company->ruc,
+                $document->tipo_documento,
+                $document->serie,
+                $document->correlativo,
+            );
+
+            $client = app(ValidapseClient::class);
+            $response = $client->signAndSend(
+                tokenAcceso: $token,
+                production: (bool) $company->modo_produccion,
+                nombreArchivo: $nombreArchivo,
+                unsignedXml: $unsignedXml,
+            );
+
+            // Persistir XML firmado (devuelto por ValidaPSE en base64).
+            $signedXml = base64_decode($response['xml'] ?? '', strict: true);
+            if ($signedXml !== false && $signedXml !== '') {
+                $xmlPath = $this->fileService->saveXml($document, $signedXml);
+                $document->xml_path = $xmlPath;
+                $document->xml_url = $this->storageService->getDocumentUrl($xmlPath);
+
+                $hash = $response['codigo_hash'] ?: $this->extractHashFromXml($signedXml);
+                if ($hash) {
+                    $document->codigo_hash = $hash;
+                }
+            } else {
+                Log::warning('ValidaPSE devolvió respuesta exitosa pero sin XML firmado', [
+                    'document_id' => $document->id ?? null,
+                    'nombre_archivo' => $nombreArchivo,
+                    'response_estado' => $response['estado'] ?? null,
+                ]);
+            }
+
+            // Estado: ValidaPSE confirmó recepción → ACEPTADO (CDR puede recuperarse después).
+            $document->estado_sunat = 'ACEPTADO';
+            $document->respuesta_sunat = json_encode([
+                'provider' => 'validapse',
+                'estado' => $response['estado'] ?? null,
+                'mensaje' => $response['mensaje'] ?? null,
+                'external_id' => $response['external_id'] ?? null,
+            ]);
+
+            $document->save();
+
+            return [
+                'success' => true,
+                'document' => $document,
+                'error' => null,
+            ];
+
+        } catch (ValidapseException $e) {
+            Log::warning('ValidaPSE falló al enviar comprobante', [
+                'document_id' => $document->id ?? null,
+                'company_id' => $company->id,
+                'http_status' => $e->httpStatus,
+                'message' => $e->userMessage,
+                'context' => $e->context,
+            ]);
+
+            // Errores de red / 5xx → PENDIENTE (reintentable).
+            // Errores 4xx o rechazo explícito → RECHAZADO.
+            $isTransient = $e->httpStatus === null || ($e->httpStatus >= 500 && $e->httpStatus < 600);
+            $document->estado_sunat = $isTransient ? 'PENDIENTE' : 'RECHAZADO';
+            $document->respuesta_sunat = json_encode([
+                'provider' => 'validapse',
+                'http_status' => $e->httpStatus,
+                'message' => $e->userMessage,
+            ]);
+            $document->save();
+
+            return [
+                'success' => false,
+                'document' => $document,
+                'error' => (object) [
+                    'code' => $isTransient ? 'EXCEPTION' : 'VALIDAPSE_REJECTED',
+                    'message' => $e->userMessage,
+                ],
+            ];
+
+        } catch (Exception $e) {
+            Log::error('Error inesperado en envío ValidaPSE', [
+                'document_id' => $document->id ?? null,
+                'company_id' => $company->id,
+                'error' => $e->getMessage(),
+            ]);
+            return [
+                'success' => false,
+                'document' => $document,
+                'error' => (object) [
+                    'code' => 'EXCEPTION',
+                    'message' => $e->getMessage(),
+                ],
             ];
         }
     }
@@ -1233,6 +1377,43 @@ class DocumentService
         return $matches[1] ?? null;
     }
 
+    /**
+     * Guard para flujos que NO están soportados con ValidaPSE en este spike.
+     *
+     * Si la company es ValidaPSE, retorna un array de error con el shape
+     * estándar del service ({ success, document, error }) para que el caller
+     * lo propague al controller HTTP. Si NO es ValidaPSE, retorna null y
+     * el flujo Greenter continúa intacto.
+     *
+     * Operaciones cubiertas (todas no aplicables a NRUS o fuera de scope):
+     *   - signXml (solo-firma sin envío)
+     *   - sendDailySummaryToSunat / checkSummaryStatus (resúmenes)
+     *   - sendRetentionToSunat (retenciones, no NRUS)
+     *   - sendVoidedDocumentToSunat / checkVoidedDocumentStatus (bajas)
+     *
+     * Operaciones que SÍ funcionan con ValidaPSE: sendToSunat (boletas),
+     * incluyendo el reintento desde el worker Celery cuando un documento
+     * quedó PENDIENTE.
+     *
+     * Doc: docs/INTEGRACION-VALIDAPSE-NRUS.md (auditoría post-Paso 10)
+     */
+    protected function guardValidapseUnsupported(Company $company, $document, string $operation): ?array
+    {
+        if (!$company->usesValidapse()) {
+            return null;
+        }
+
+        return [
+            'success' => false,
+            'document' => $document,
+            'error' => (object) [
+                'code' => 'VALIDAPSE_OPERATION_UNSUPPORTED',
+                'message' => "La operación '{$operation}' no está disponible para empresas con cpe_provider=validapse. "
+                    . 'Solo se soporta emisión de boletas vía sendToSunat (firma + envío atómico).',
+            ],
+        ];
+    }
+
     public function createDailySummary(array $data): DailySummary
     {
         return DB::transaction(function () use ($data) {
@@ -1268,8 +1449,16 @@ class DocumentService
     {
         try {
             $company = $summary->company;
+
+            // ValidaPSE: resúmenes diarios no soportados en este spike.
+            // El cliente NRUS debe usarlos vía panel ValidaPSE o esperar
+            // a que se implemente como follow-up.
+            if ($guard = $this->guardValidapseUnsupported($company, $summary, 'sendDailySummaryToSunat')) {
+                return $guard;
+            }
+
             $greenterService = new GreenterService($company, $this->storageService);
-            
+
             // Preparar datos para Greenter
             $summaryData = $this->prepareSummaryData($summary);
             
@@ -1336,8 +1525,15 @@ class DocumentService
                     'error' => 'No hay ticket disponible para consultar'
                 ];
             }
-            
+
             $company = $summary->company;
+
+            // ValidaPSE: consulta de ticket de resumen no aplica
+            // (los resúmenes en sí no se envían por este flujo).
+            if ($guard = $this->guardValidapseUnsupported($company, $summary, 'checkSummaryStatus')) {
+                return $guard;
+            }
+
             $greenterService = new GreenterService($company, $this->storageService);
 
             $result = $greenterService->checkSummaryStatus($summary->ticket);
@@ -2551,8 +2747,16 @@ class DocumentService
     public function sendRetentionToSunat(Retention $retention): array
     {
         try {
-            $greenterService = new GreenterService($retention->company, $this->storageService);
-            
+            $company = $retention->company;
+
+            // ValidaPSE: las retenciones no aplican a régimen NRUS y no están
+            // en el scope del spike. Bloqueado con error claro en lugar de NPE.
+            if ($guard = $this->guardValidapseUnsupported($company, $retention, 'sendRetentionToSunat')) {
+                return $guard;
+            }
+
+            $greenterService = new GreenterService($company, $this->storageService);
+
             // Preparar datos para Greenter
             $retentionData = [
                 'company_id' => $retention->company_id,
@@ -2663,8 +2867,15 @@ class DocumentService
     {
         try {
             $company = $voidedDocument->company;
+
+            // ValidaPSE: comunicación de baja no soportada en este spike.
+            // NRUS hace anulaciones vía resumen diario con tipoOperacion=3, no por baja.
+            if ($guard = $this->guardValidapseUnsupported($company, $voidedDocument, 'sendVoidedDocumentToSunat')) {
+                return $guard;
+            }
+
             $greenterService = new GreenterService($company, $this->storageService);
-            
+
             // Preparar datos para Greenter
             $voidedData = $this->prepareVoidedDocumentData($voidedDocument);
             
@@ -2727,8 +2938,14 @@ class DocumentService
     {
         try {
             $company = $voidedDocument->company;
+
+            // ValidaPSE: consulta de baja no aplica (las bajas no se envían por este flujo).
+            if ($guard = $this->guardValidapseUnsupported($company, $voidedDocument, 'checkVoidedDocumentStatus')) {
+                return $guard;
+            }
+
             $greenterService = new GreenterService($company, $this->storageService);
-            
+
             // Consultar estado con ticket
             $result = $greenterService->checkVoidedDocumentStatus($voidedDocument->ticket);
             

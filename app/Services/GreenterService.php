@@ -46,6 +46,22 @@ class GreenterService
     {
         $this->company = $company;
         $this->storageService = $storageService;
+
+        // Si la empresa usa ValidaPSE como proveedor CPE, NO cargamos
+        // certificado ni SOL: ValidaPSE firma con su propio certificado PSE
+        // y el envío a SUNAT lo hace ValidaPSE también. En ese modo el service
+        // solo se usa para construir documentos Greenter (createInvoice/createNote)
+        // que después serán pasados a UnsignedXmlBuilder para producir XML plano.
+        //
+        // Llamar a sendDocument/getXmlSigned/etc. sobre una instancia en este
+        // modo lanzará NPE — por diseño, esos métodos NO deben usarse para
+        // empresas ValidaPSE. El branching vive en DocumentService::sendToSunat.
+        if ($company->usesValidapse()) {
+            $this->see = null;
+            $this->seeApi = null;
+            return;
+        }
+
         $this->see = $this->initializeSee();
         $this->seeApi = $this->initializeSeeApi();
     }

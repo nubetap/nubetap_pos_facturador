@@ -34,7 +34,12 @@ class StoreCompanyRequest extends FormRequest
             'endpoint_produccion' => 'nullable|url|max:255',
             'modo_produccion' => 'nullable|in:true,false,1,0',
             'logo_path' => 'nullable|file|mimes:png,jpeg,jpg|max:2048',
-            'activo' => 'boolean'
+            'activo' => 'boolean',
+            // Proveedor CPE alterno (NRUS): default 'greenter' a nivel DB,
+            // solo se envía explícito cuando es 'validapse'.
+            'cpe_provider' => 'nullable|in:greenter,validapse',
+            'validapse_empresa_id' => 'nullable|integer|min:1',
+            'validapse_token_acceso' => 'nullable|string|max:500',
         ];
     }
 

@@ -35,4 +35,24 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | ValidaPSE
+    |--------------------------------------------------------------------------
+    |
+    | Proveedor PSE externo que firma + envía CPE a SUNAT con su propio
+    | certificado. Usado para clientes NRUS (Company.cpe_provider == 'validapse').
+    | Doc: docs/INTEGRACION-VALIDAPSE-NRUS.md
+    |
+    | El token NO se setea aquí — cada Company tiene su propio
+    | validapse_token_acceso (sincronizado desde Django).
+    */
+
+    'validapse' => [
+        'base_url' => env('VALIDAPSE_BASE_URL', 'https://app.validapse.com'),
+        'timeout' => env('VALIDAPSE_TIMEOUT', 30),
+        'retry_times' => env('VALIDAPSE_RETRY_TIMES', 2),
+        'retry_sleep_ms' => env('VALIDAPSE_RETRY_SLEEP_MS', 500),
+    ],
+
 ];
