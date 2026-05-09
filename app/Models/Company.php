@@ -39,11 +39,17 @@ class Company extends Model
         'modo_produccion',
         'logo_path',
         'activo',
+        // Proveedor CPE alterno para clientes NRUS (firma vía PSE externo).
+        // Default 'greenter' a nivel DB → empresas existentes no se ven afectadas.
+        'cpe_provider',
+        'validapse_empresa_id',
+        'validapse_token_acceso',
     ];
 
     protected $casts = [
         'modo_produccion' => 'boolean',
         'activo' => 'boolean',
+        'validapse_empresa_id' => 'integer',
     ];
 
     protected $hidden = [
@@ -53,7 +59,17 @@ class Company extends Model
         'gre_client_secret_beta',
         'gre_client_secret_produccion',
         'gre_clave_sol',
+        'validapse_token_acceso',
     ];
+
+    // Constantes del proveedor CPE
+    public const CPE_PROVIDER_GREENTER = 'greenter';
+    public const CPE_PROVIDER_VALIDAPSE = 'validapse';
+
+    public function usesValidapse(): bool
+    {
+        return $this->cpe_provider === self::CPE_PROVIDER_VALIDAPSE;
+    }
 
     public function branches(): HasMany
     {
