@@ -816,18 +816,53 @@ class DocumentService
                 ],
             ];
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
+            // Capturar Throwable, no solo Exception: errores como
+            // "Class not found", TypeError, ArgumentCountError NO son
+            // Exception en PHP y burbujean como 500 desnudo si solo
+            // capturamos Exception. Esto los normaliza al mismo shape
+            // de retorno y los persiste en respuesta_sunat para diagnóstico.
             Log::error('Error inesperado en envío ValidaPSE', [
                 'document_id' => $document->id ?? null,
                 'company_id' => $company->id,
+                'error_class' => get_class($e),
                 'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace_first' => collect($e->getTrace())->take(5)->all(),
             ]);
+
+            // Persistir el error en el documento para que Django y el
+            // panel admin lo vean (sin esto la boleta queda muda y el
+            // worker reintenta a ciegas).
+            try {
+                $document->estado_sunat = 'PENDIENTE';
+                $document->respuesta_sunat = json_encode([
+                    'provider' => 'validapse',
+                    'error_class' => get_class($e),
+                    'message' => $e->getMessage(),
+                    'file' => basename($e->getFile()) . ':' . $e->getLine(),
+                ]);
+                $document->save();
+            } catch (\Throwable $persistError) {
+                Log::error('No se pudo persistir el error de ValidaPSE en el documento', [
+                    'document_id' => $document->id ?? null,
+                    'persist_error' => $persistError->getMessage(),
+                ]);
+            }
+
             return [
                 'success' => false,
                 'document' => $document,
                 'error' => (object) [
                     'code' => 'EXCEPTION',
-                    'message' => $e->getMessage(),
+                    'message' => sprintf(
+                        '%s: %s (%s:%d)',
+                        get_class($e),
+                        $e->getMessage(),
+                        basename($e->getFile()),
+                        $e->getLine(),
+                    ),
                 ],
             ];
         }
