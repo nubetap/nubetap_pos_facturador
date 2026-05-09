@@ -3,6 +3,7 @@
 namespace App\Services\Cpe;
 
 use Exception;
+use Greenter\Builder\BuilderInterface;
 use Greenter\Model\DocumentInterface;
 use Greenter\Model\Despatch\Despatch;
 use Greenter\Model\Retention\Retention;
@@ -10,7 +11,6 @@ use Greenter\Model\Sale\Invoice;
 use Greenter\Model\Sale\Note;
 use Greenter\Model\Summary\Summary;
 use Greenter\Model\Voided\Reversion;
-use Greenter\Xml\Builder\BuilderInterface;
 use Greenter\Xml\Builder\DespatchBuilder;
 use Greenter\Xml\Builder\InvoiceBuilder;
 use Greenter\Xml\Builder\NoteBuilder;
@@ -74,7 +74,17 @@ class UnsignedXmlBuilder
     public static function build(DocumentInterface $document): string
     {
         $builder = self::resolveBuilder($document);
-        return $builder->build($document);
+        // BuilderInterface::build() declara `?string` (la mayoría de builders
+        // devuelven string siempre, pero la interfaz lo permite null). Si null,
+        // lanzamos para no propagar un valor inválido al cliente HTTP.
+        $xml = $builder->build($document);
+        if ($xml === null || $xml === '') {
+            throw new Exception(
+                'UnsignedXmlBuilder: ' . get_class($builder) .
+                '->build() devolvió un XML vacío para ' . get_class($document)
+            );
+        }
+        return $xml;
     }
 
     /**
