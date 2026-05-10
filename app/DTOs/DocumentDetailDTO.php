@@ -11,7 +11,12 @@ class DocumentDetailDTO extends BaseDTO
         public string $unidad_medida,
         public float $mto_valor_unitario,
         public string $tip_afe_igv = '10',
-        public float $porcentaje_igv = 18.0,
+        // Default 0.0 (no 18.0): el cliente HTTP siempre envía porcentaje_igv
+        // explícitamente desde Django; este default solo aplica si alguien
+        // construye el DTO manualmente sin pasar el valor. 0.0 es seguro
+        // para NRUS (régimen sin IGV) y hace visible cualquier omisión en
+        // Régimen General en lugar de enmascararla con 18 hardcoded.
+        public float $porcentaje_igv = 0.0,
         public ?float $mto_descuento = null,
         public ?float $factor_descuento = null,
         public ?float $isc = null,

@@ -961,7 +961,10 @@ class DocumentService
         foreach ($detalles as &$detalle) {
             $cantidad = $detalle['cantidad'];
             $mtoValorUnitario = $detalle['mto_valor_unitario'];
-            $porcentajeIgv = $detalle['porcentaje_igv'] ?? 18;
+            // Fallback 0 (no 18): Django siempre envía porcentaje_igv. Si por
+            // algún bug llegara faltante, asumir 0 es seguro para NRUS y hace
+            // visible la falta de dato en otros regímenes en vez de inventarlo.
+            $porcentajeIgv = $detalle['porcentaje_igv'] ?? 0;
             $tipAfeIgv = $detalle['tip_afe_igv'];
 
             // Calcular valores automáticamente
@@ -1152,11 +1155,14 @@ class DocumentService
                 }
             }
 
-            // Obtener el porcentaje IGV del primer detalle gravado (código 10) o usar 18% por defecto
-            $porcentajeIgvGlobal = 18;
+            // Obtener el porcentaje IGV del primer detalle gravado (código 10).
+            // Si no hay items gravados (caso NRUS: todos inafectos), queda en 0
+            // y los descuentos globales no aplican prorrateo de IGV — correcto
+            // porque no hay IGV que prorratear.
+            $porcentajeIgvGlobal = 0;
             foreach ($detalles as $det) {
                 if (isset($det['tip_afe_igv']) && $det['tip_afe_igv'] === '10') {
-                    $porcentajeIgvGlobal = $det['porcentaje_igv'] ?? 18;
+                    $porcentajeIgvGlobal = $det['porcentaje_igv'] ?? 0;
                     break;
                 }
             }
