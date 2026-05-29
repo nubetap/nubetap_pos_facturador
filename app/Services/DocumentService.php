@@ -515,7 +515,15 @@ class DocumentService
                 'redondeo' => $totals['redondeo'],
                 'detalles' => $data['detalles'],
                 'leyendas' => $this->generateLegends($totals['mto_imp_venta'], $data['moneda'] ?? 'PEN', $data),
-                'datos_adicionales' => $data['datos_adicionales'] ?? null,
+                // Persistir descuentos/anticipos para que prepareDocumentData
+                // los recupere al firmar el XML (ver issue SUNAT 4299/4309).
+                'datos_adicionales' => array_merge(
+                    $data['datos_adicionales'] ?? [],
+                    [
+                        '_descuentos_globales' => $data['descuentos'] ?? null,
+                        '_anticipos' => $data['anticipos'] ?? null,
+                    ]
+                ),
                 'usuario_creacion' => $data['usuario_creacion'] ?? null,
             ]);
 
@@ -1030,18 +1038,25 @@ class DocumentService
 
             $totalImpuestos = $igv + $isc + $icbper;
             $mtoPrecioUnitario = $mtoValorUnitario;
-            if ($tipAfeIgv === '10' || $tipAfeIgv === '17') { // Incluir IVAP
-                // Calcular precio unitario directamente del valor unitario para evitar errores de redondeo
-                $tasaImpuesto = ($tipAfeIgv === '10') ? ($porcentajeIgv / 100) : (($detalle['porcentaje_ivap'] ?? $porcentajeIgv ?? 2) / 100);
-                $precioConImpuestos = $mtoValorUnitario * (1 + $tasaImpuesto);
+            if ($tipAfeIgv === '10' || $tipAfeIgv === '17') {
+                $tasaImpuesto = ($tipAfeIgv === '10')
+                    ? ($porcentajeIgv / 100)
+                    : (($detalle['porcentaje_ivap'] ?? $porcentajeIgv ?? 2) / 100);
 
-                // Redondear a 2 decimales usando PHP_ROUND_HALF_DOWN para casos como 100.005 → 100.00
-                // Esto es más consistente con las prácticas comerciales estándar
+                // SUNAT 4287: AlternativeConditionPrice debe reflejar el precio
+                // unitario CON descuento aplicado. Si la línea tiene descuento,
+                // derivar desde mto_valor_venta (ya descontado); sin descuento,
+                // mantener cálculo desde mto_valor_unitario para preservar
+                // precisión y no introducir error por doble redondeo.
+                $tieneDescuentoLinea = ($descuentosAfectanBase + $descuentosNoAfectanBase) > 0;
+
+                if ($tieneDescuentoLinea && $cantidad > 0) {
+                    $precioConImpuestos = ($mtoValorVenta + $igv) / $cantidad;
+                } else {
+                    $precioConImpuestos = $mtoValorUnitario * (1 + $tasaImpuesto);
+                }
+
                 $mtoPrecioUnitario = round($precioConImpuestos, 2, PHP_ROUND_HALF_DOWN);
-
-                // NOTA: NO recalcular IGV basado en precio unitario, usar el cálculo correcto ya hecho
-                // El IGV ya fue calculado correctamente en la línea 613 como: $igv = round($mtoBaseIgv * ($porcentajeIgv / 100), 2)
-                // No sobrescribir ese valor aquí, ya que causaría errores al no considerar la cantidad
                 $totalImpuestos = $igv + $isc + $icbper;
             }
 
