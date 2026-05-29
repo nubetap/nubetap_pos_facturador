@@ -60,8 +60,12 @@ class UpdateBoletaRequest extends FormRequest
             'detalles.*.icbper' => 'nullable|numeric|min:0',
             'detalles.*.factor_icbper' => 'nullable|numeric|min:0',
 
-            // Descuentos por línea
+            // Descuentos por línea (catálogo 53). cod_tipo/monto_base/factor son
+            // necesarios para AllowanceCharge; sin ellos SUNAT recibe BaseAmount/factor 0.
             'detalles.*.descuentos' => 'nullable|array',
+            'detalles.*.descuentos.*.cod_tipo' => 'required_with:detalles.*.descuentos|string|in:00,01',
+            'detalles.*.descuentos.*.monto_base' => 'required_with:detalles.*.descuentos|numeric|min:0',
+            'detalles.*.descuentos.*.factor' => 'required_with:detalles.*.descuentos|numeric|min:0',
             'detalles.*.descuentos.*.monto' => 'required_with:detalles.*.descuentos|numeric|min:0',
 
             // Leyendas
