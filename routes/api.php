@@ -229,6 +229,9 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::post('/{id}/sign-xml', [BoletaController::class, 'signXml']);
         Route::post('/{id}/send-sunat', [BoletaController::class, 'sendToSunat'])
             ->middleware('throttle:sunat-send');
+        // Recuperación de CDR vía ValidaPSE (sin throttle sunat-send: es una
+        // consulta a ValidaPSE, no un envío a SUNAT).
+        Route::post('/{id}/validapse-cdr', [BoletaController::class, 'recoverValidapseCdr']);
         Route::get('/{id}/download-xml', [BoletaController::class, 'downloadXml']);
         Route::get('/{id}/download-cdr', [BoletaController::class, 'downloadCdr']);
         Route::get('/{id}/download-pdf', [BoletaController::class, 'downloadPdf']);

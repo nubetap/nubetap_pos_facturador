@@ -877,6 +877,144 @@ class DocumentService
     }
 
     /**
+     * Recupera el CDR de SUNAT vía ValidaPSE y actualiza el documento.
+     *
+     * ValidaPSE NO ofrece reenvío por API: cuando un comprobante queda
+     * pendiente/rechazado, el reenvío se hace manualmente desde el panel de
+     * ValidaPSE. Este método es la contraparte de RECUPERACIÓN: consulta
+     * GET /api/cpe/consultar/{RUC-TIPO-SERIE-NUMERO} y, si SUNAT ya lo tiene,
+     * persiste CDR + hash y marca ACEPTADO. Lo invoca el job horario de
+     * Django (sync_validapse_documents) — recuperar en lugar de reenviar.
+     *
+     * NO modifica el estado si el CDR aún no está disponible: devuelve
+     * success=false con código VALIDAPSE_CDR_NOT_AVAILABLE y el documento
+     * queda tal cual (el admin lo reenviará manualmente en ValidaPSE).
+     */
+    public function recoverCdrViaValidapse($document): array
+    {
+        $company = $document->company;
+
+        if (!$company->usesValidapse()) {
+            return [
+                'success' => false,
+                'document' => $document,
+                'error' => (object) [
+                    'code' => 'VALIDAPSE_NOT_APPLICABLE',
+                    'message' => 'La empresa no usa ValidaPSE como proveedor CPE.',
+                ],
+            ];
+        }
+
+        $token = $company->validapse_token_acceso;
+        if (empty($token)) {
+            return [
+                'success' => false,
+                'document' => $document,
+                'error' => (object) [
+                    'code' => 'VALIDAPSE_TOKEN_MISSING',
+                    'message' => 'Empresa ValidaPSE sin token sincronizado. Volver a sincronizar desde Django.',
+                ],
+            ];
+        }
+
+        $nombreArchivo = sprintf(
+            '%s-%s-%s-%s',
+            $company->ruc,
+            $document->tipo_documento,
+            $document->serie,
+            $document->correlativo,
+        );
+
+        try {
+            $client = app(ValidapseClient::class);
+            $response = $client->getCdr(
+                tokenAcceso: $token,
+                production: (bool) $company->modo_produccion,
+                nombreArchivo: $nombreArchivo,
+            );
+
+            // CDR disponible → persistir constancia y marcar ACEPTADO.
+            $content = base64_decode($response['xml'] ?? '', strict: true);
+            if ($content !== false && $content !== '') {
+                $cdrPath = $this->fileService->saveCdr($document, $content);
+                $document->cdr_path = $cdrPath;
+                $document->cdr_url = $this->storageService->getDocumentUrl($cdrPath);
+            } else {
+                Log::warning('ValidaPSE consultar OK pero sin contenido CDR', [
+                    'document_id' => $document->id ?? null,
+                    'nombre_archivo' => $nombreArchivo,
+                ]);
+            }
+
+            if (!empty($response['codigo_hash']) && empty($document->codigo_hash)) {
+                $document->codigo_hash = $response['codigo_hash'];
+            }
+
+            $document->estado_sunat = 'ACEPTADO';
+            $document->respuesta_sunat = json_encode([
+                'provider' => 'validapse',
+                'recovered' => true,
+                'estado' => $response['estado'] ?? null,
+                'mensaje' => $response['mensaje'] ?? 'CDR recuperado de ValidaPSE',
+                'external_id' => $response['external_id'] ?? null,
+            ]);
+            $document->save();
+
+            Log::info('CDR recuperado de ValidaPSE', [
+                'document_id' => $document->id,
+                'nombre_archivo' => $nombreArchivo,
+                'has_cdr_file' => (bool) $document->cdr_path,
+            ]);
+
+            return [
+                'success' => true,
+                'document' => $document,
+                'error' => null,
+            ];
+
+        } catch (ValidapseException $e) {
+            // 4xx = SUNAT/ValidaPSE aún no tiene el comprobante (o rechazo):
+            // NO tocar el estado — el reenvío es manual en el panel ValidaPSE.
+            Log::info('CDR aún no disponible en ValidaPSE', [
+                'document_id' => $document->id ?? null,
+                'nombre_archivo' => $nombreArchivo,
+                'http_status' => $e->httpStatus,
+                'message' => $e->userMessage,
+            ]);
+
+            $isTransient = $e->httpStatus === null
+                || ($e->httpStatus >= 500 && $e->httpStatus < 600);
+
+            return [
+                'success' => false,
+                'document' => $document,
+                'error' => (object) [
+                    'code' => $isTransient
+                        ? 'EXCEPTION'
+                        : 'VALIDAPSE_CDR_NOT_AVAILABLE',
+                    'message' => $e->userMessage,
+                ],
+            ];
+
+        } catch (\Throwable $e) {
+            Log::error('Error inesperado recuperando CDR de ValidaPSE', [
+                'document_id' => $document->id ?? null,
+                'nombre_archivo' => $nombreArchivo,
+                'error_class' => get_class($e),
+                'error' => $e->getMessage(),
+            ]);
+            return [
+                'success' => false,
+                'document' => $document,
+                'error' => (object) [
+                    'code' => 'EXCEPTION',
+                    'message' => $e->getMessage(),
+                ],
+            ];
+        }
+    }
+
+    /**
      * Sincroniza la tabla correlatives de PHP con el correlativo recibido desde Django.
      * Esto mantiene la consistencia entre ambos sistemas.
      * Solo actualiza si el correlativo recibido es mayor al actual.
