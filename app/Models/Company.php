@@ -62,6 +62,20 @@ class Company extends Model
         'validapse_token_acceso',
     ];
 
+    protected $appends = [
+        'validapse_has_token',
+    ];
+
+    /**
+     * Si la empresa tiene el token de ValidaPSE cargado AQUÍ (el token en sí
+     * queda oculto). Sin él no se puede emitir por ValidaPSE, aunque el sistema
+     * cliente crea que la empresa está vinculada.
+     */
+    public function getValidapseHasTokenAttribute(): bool
+    {
+        return ! empty($this->attributes['validapse_token_acceso']);
+    }
+
     // Constantes del proveedor CPE
     public const CPE_PROVIDER_GREENTER = 'greenter';
     public const CPE_PROVIDER_VALIDAPSE = 'validapse';
