@@ -24,6 +24,9 @@ class StoreInvoiceRequest extends FormRequest
             'fecha_vencimiento' => 'nullable|date|after_or_equal:fecha_emision',
             'moneda' => 'required|string|in:PEN,USD',
             'tipo_operacion' => 'nullable|string|max:4',
+            // Observación libre (ej. exoneración Ley 27037). Se convierte en
+            // leyenda solo si el comprobante tiene ítems exonerados/inafectos.
+            'notas' => 'nullable|string|max:250',
             'forma_pago_tipo' => 'required|string|in:Contado,Credito',
             'forma_pago_cuotas' => 'nullable|array',
             'forma_pago_cuotas.*.moneda' => 'required_with:forma_pago_cuotas|string',

@@ -20,6 +20,7 @@ class UpdateBoletaRequest extends FormRequest
             'fecha_emision' => 'sometimes|date',
             'ubl_version' => 'nullable|string|max:5',
             'tipo_operacion' => 'nullable|string|max:4',
+            'notas' => 'nullable|string|max:250',
             'moneda' => 'sometimes|string|max:3',
             'metodo_envio' => 'sometimes|string|in:individual,resumen_diario',
             'forma_pago_tipo' => 'nullable|string|max:20',

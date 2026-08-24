@@ -1474,10 +1474,35 @@ class DocumentService
                 'value' => 'OPERACIÓN SUJETA AL IVAP'
             ];
         }
-        
+
+        // Observación de exoneración/inafectación (ej. Ley Amazonía 27037).
+        // El texto viene de Django en 'notas' y solo se agrega si el
+        // comprobante tiene ítems exonerados (20) o inafectos (30). Se usa el
+        // código 2000 (observaciones/textos informativos del emisor). No aplica
+        // a comprobantes gravados: 'notas' se ignora para ellos.
+        $observacion = trim($data['notas'] ?? '');
+        if ($observacion !== '' && isset($data['detalles'])
+            && $this->hasExoneradoInafectoItems($data['detalles'])) {
+            $leyendas[] = [
+                'code' => '2000',
+                'value' => mb_substr($observacion, 0, 250),
+            ];
+        }
+
         return $leyendas;
     }
-    
+
+    protected function hasExoneradoInafectoItems(array $detalles): bool
+    {
+        foreach ($detalles as $detalle) {
+            $tipAfeIgv = $detalle['tip_afe_igv'] ?? '';
+            if (in_array($tipAfeIgv, ['20', '30'])) { // Exonerado / Inafecto
+                return true;
+            }
+        }
+        return false;
+    }
+
     protected function hasGratuitasItems(array $detalles): bool
     {
         foreach ($detalles as $detalle) {
