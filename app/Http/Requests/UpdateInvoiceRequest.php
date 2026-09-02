@@ -108,6 +108,9 @@ class UpdateInvoiceRequest extends FormRequest
             'guias' => 'nullable|array',
             'documentos_relacionados' => 'nullable|array',
             'datos_adicionales' => 'nullable|array',
+            // Total cobrado en caja: calculateTotals lo usa para el redondeo y
+            // prepareDocumentData lo recupera al firmar (ver datos_adicionales._total_esperado).
+            'total_esperado' => 'nullable|numeric|min:0',
         ];
     }
 
