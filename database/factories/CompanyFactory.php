@@ -46,7 +46,6 @@ MIICertificateDataForTesting
             'endpoint_produccion' => 'https://e-factura.sunat.gob.pe/ol-ti-itcpfegem/billService',
             'modo_produccion' => false,
             'logo_path' => null,
-            'configuraciones' => null,
             'activo' => true,
         ];
     }
