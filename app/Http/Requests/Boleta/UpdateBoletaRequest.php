@@ -82,6 +82,9 @@ class UpdateBoletaRequest extends FormRequest
             'descuentos.*.monto_base' => 'required_with:descuentos|numeric|min:0',
 
             'datos_adicionales' => 'nullable|array',
+            // Total cobrado en caja: calculateTotals lo usa para el redondeo y
+            // prepareDocumentData lo recupera al firmar (ver datos_adicionales._total_esperado).
+            'total_esperado' => 'nullable|numeric|min:0',
         ];
     }
 

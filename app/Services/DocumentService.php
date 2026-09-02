@@ -156,7 +156,8 @@ class DocumentService
                     $data['datos_adicionales'] ?? [],
                     [
                         '_descuentos_globales' => $data['descuentos'] ?? null,
-                        '_anticipos' => $data['anticipos'] ?? null
+                        '_anticipos' => $data['anticipos'] ?? null,
+                        '_total_esperado' => $data['total_esperado'] ?? null,
                     ]
                 ),
                 'detraccion' => $data['detraccion'] ?? null,
@@ -269,7 +270,8 @@ class DocumentService
                         $data['datos_adicionales'],
                         [
                             '_descuentos_globales' => $data['descuentos'] ?? null,
-                            '_anticipos' => $data['anticipos'] ?? null
+                            '_anticipos' => $data['anticipos'] ?? null,
+                            '_total_esperado' => $data['total_esperado'] ?? null,
                         ]
                     ) : $invoice->datos_adicionales,
                 'detraccion' => $data['detraccion'] ?? $invoice->detraccion,
@@ -319,6 +321,7 @@ class DocumentService
                 'descuentos' => $data['descuentos'] ?? [],
                 'anticipos' => [],
                 'redondeo' => 0,
+                'total_esperado' => $data['total_esperado'] ?? null,
             ];
 
             // Procesar detalles según tipo de operación si se están actualizando
@@ -387,7 +390,20 @@ class DocumentService
                 'leyendas' => isset($data['detalles']) ?
                     $this->generateLegends($totals['mto_imp_venta'], $data['moneda'] ?? $boleta->moneda, $data) :
                     $boleta->leyendas,
-                'datos_adicionales' => $data['datos_adicionales'] ?? $boleta->datos_adicionales,
+                // Persistir descuentos y total_esperado para que prepareDocumentData
+                // los recupere al firmar (sin esto el redondeo se calcula en el
+                // POST/PUT pero se pierde al recalcular totales antes de firmar).
+                'datos_adicionales' => array_merge(
+                    is_array($data['datos_adicionales'] ?? null)
+                        ? $data['datos_adicionales']
+                        : (is_array($boleta->datos_adicionales) ? $boleta->datos_adicionales : []),
+                    [
+                        '_descuentos_globales' => $data['descuentos']
+                            ?? (is_array($boleta->datos_adicionales) ? ($boleta->datos_adicionales['_descuentos_globales'] ?? null) : null),
+                        '_total_esperado' => $data['total_esperado']
+                            ?? (is_array($boleta->datos_adicionales) ? ($boleta->datos_adicionales['_total_esperado'] ?? null) : null),
+                    ]
+                ),
                 // Restablecer estado a PENDIENTE para permitir reenvío
                 'estado_sunat' => 'PENDIENTE',
                 'respuesta_sunat' => null,
@@ -522,6 +538,7 @@ class DocumentService
                     [
                         '_descuentos_globales' => $data['descuentos'] ?? null,
                         '_anticipos' => $data['anticipos'] ?? null,
+                        '_total_esperado' => $data['total_esperado'] ?? null,
                     ]
                 ),
                 'usuario_creacion' => $data['usuario_creacion'] ?? null,
@@ -1563,6 +1580,12 @@ class DocumentService
         }
         if (!empty($datosAdicionales['_anticipos'])) {
             $data['anticipos'] = $datosAdicionales['_anticipos'];
+        }
+        // total_esperado no es columna: sin recuperarlo de datos_adicionales el
+        // redondeo calculado en el POST se perdía al recalcular antes de firmar
+        // (XML con PayableRoundingAmount pero PayableAmount sin corregir).
+        if (isset($datosAdicionales['_total_esperado']) && $datosAdicionales['_total_esperado'] !== null) {
+            $data['total_esperado'] = $datosAdicionales['_total_esperado'];
         }
 
         // Preparar datos globales
