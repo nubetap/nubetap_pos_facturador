@@ -408,6 +408,22 @@ trait HasCompanyConfigurations
     public const GRE_API_ENDPOINT_PRODUCCION = 'https://api-cpe.sunat.gob.pe/v1/';
 
     /**
+     * Host de autenticación OAuth2. Es un dominio DISTINTO al de envío
+     * (api-seguridad vs api-cpe); pasarle a Greenter el mismo valor para
+     * 'auth' y 'cpe' hace que el token se pida al host equivocado.
+     * SUNAT expone un único host de seguridad para ambos ambientes.
+     */
+    public const GRE_AUTH_ENDPOINT = 'https://api-seguridad.sunat.gob.pe/v1';
+
+    /**
+     * Endpoint de autenticación OAuth2 para GRE.
+     */
+    public function getGreAuthEndpoint(): string
+    {
+        return self::GRE_AUTH_ENDPOINT;
+    }
+
+    /**
      * Obtener endpoints de servicios SUNAT
      */
     public function getSunatEndpoints(string $serviceType = 'facturacion'): array

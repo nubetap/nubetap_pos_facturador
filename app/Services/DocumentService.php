@@ -2187,7 +2187,7 @@ class DocumentService
      *
      * @throws Exception si el endpoint configurado no es de SUNAT.
      */
-    protected function resolveGreApiEndpoint($company): string
+    protected function resolveGreApiEndpoint($company): array
     {
         $endpoint = trim((string) $company->getGuideApiEndpoint());
 
@@ -2207,13 +2207,19 @@ class DocumentService
             );
         }
 
+        // auth y cpe son hosts DISTINTOS: el token se pide a api-seguridad
+        // y el comprobante se envía a api-cpe. Pasar el mismo valor a ambos
+        // hace que la autenticación golpee el host equivocado.
+        $authEndpoint = $company->getGreAuthEndpoint();
+
         Log::info('Endpoint GRE resuelto', [
             'company_id' => $company->id,
             'modo_produccion' => (bool) $company->modo_produccion,
-            'endpoint' => $endpoint,
+            'cpe' => $endpoint,
+            'auth' => $authEndpoint,
         ]);
 
-        return $endpoint;
+        return ['auth' => $authEndpoint, 'cpe' => $endpoint];
     }
 
     public function sendDispatchGuideToSunat(DispatchGuide $guide): array
@@ -2486,10 +2492,7 @@ class DocumentService
             $company = $guide->company;
             $greEndpoint = $this->resolveGreApiEndpoint($company);
 
-            $api = new \Greenter\Api([
-                'auth' => $greEndpoint,
-                'cpe' => $greEndpoint,
-            ]);
+            $api = new \Greenter\Api($greEndpoint);
 
             // Configurar certificado usando StorageService
             $certificadoContent = $this->storageService->getCertificateContent($company->ruc);
@@ -2625,10 +2628,7 @@ class DocumentService
             // ambiente donde se envió la guía.
             $greEndpoint = $this->resolveGreApiEndpoint($guide->company);
 
-            $api = new \Greenter\Api([
-                'auth' => $greEndpoint,
-                'cpe' => $greEndpoint,
-            ]);
+            $api = new \Greenter\Api($greEndpoint);
 
             // Configurar certificado usando StorageService
             $company = $guide->company;
