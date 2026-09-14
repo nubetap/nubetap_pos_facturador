@@ -2151,6 +2151,10 @@ class DocumentService
                     'placa' => $data['vehiculo_placa'] ?? null,
                     'placa_principal' => $data['vehiculo_placa'] ?? null,
                     'placa_secundaria' => $data['vehiculo_placa_secundaria'] ?? null,
+                    // Lista completa de secundarios: el request ya los valida
+                    // (StoreDispatchGuideRequest:76) pero antes se perdían,
+                    // quedando solo una placa suelta.
+                    'secundarios' => $data['vehiculos_secundarios'] ?? [],
                     'conductor' => $data['mod_traslado'] === '02' && !isset($data['indicadores']) ? [
                         'tipo' => $data['conductor_tipo'] ?? null,
                         'tipo_doc' => $data['conductor_tipo_doc'] ?? null,
@@ -2397,18 +2401,34 @@ class DocumentService
                         $vehiculo = new \Greenter\Model\Despatch\Vehicle();
                         $vehiculo->setPlaca($placaPrincipal);
                         
-                        // Vehículo secundario (opcional)
-                        if (isset($guide->vehiculo['placa_secundaria'])) {
-                            $vehiculoSecundario = new \Greenter\Model\Despatch\Vehicle();
-                            $vehiculoSecundario->setPlaca($guide->vehiculo['placa_secundaria']);
-                            $vehiculo->setSecundarios([$vehiculoSecundario]);
+                        // Vehículos secundarios. SUNAT admite varios; antes
+                        // solo viajaba 'placa_secundaria' y el resto se perdía.
+                        $placasSecundarias = [];
+                        foreach (($guide->vehiculo['secundarios'] ?? []) as $sec) {
+                            $placa = is_array($sec) ? ($sec['placa'] ?? null) : $sec;
+                            if (!empty($placa)) {
+                                $placasSecundarias[] = $placa;
+                            }
                         }
-                        
+                        if (empty($placasSecundarias) && !empty($guide->vehiculo['placa_secundaria'])) {
+                            $placasSecundarias[] = $guide->vehiculo['placa_secundaria'];
+                        }
+
+                        if (!empty($placasSecundarias)) {
+                            $vehiculosSecundarios = [];
+                            foreach (array_unique($placasSecundarias) as $placa) {
+                                $vehiculoSecundario = new \Greenter\Model\Despatch\Vehicle();
+                                $vehiculoSecundario->setPlaca($placa);
+                                $vehiculosSecundarios[] = $vehiculoSecundario;
+                            }
+                            $vehiculo->setSecundarios($vehiculosSecundarios);
+                        }
+
                         $envio->setVehiculo($vehiculo);
-                        
+
                         Log::info("Configurado vehículo", [
                             'placa_principal' => $placaPrincipal,
-                            'placa_secundaria' => $guide->vehiculo['placa_secundaria'] ?? null
+                            'placas_secundarias' => $placasSecundarias,
                         ]);
                     }
                 }
@@ -2797,7 +2817,7 @@ class DocumentService
                 // Transporte privado normal - con conductor y vehículo
                 $data['conductor'] = $guide->vehiculo['conductor'] ?? [];
                 $data['vehiculo_placa'] = $guide->vehiculo['placa_principal'] ?? $guide->vehiculo['placa'] ?? '';
-                $data['vehiculos_secundarios'] = [];
+                $data['vehiculos_secundarios'] = $guide->vehiculo['secundarios'] ?? [];
                 Log::info("prepareDispatchGuideData: Configurando transporte privado normal", [
                     'vehiculo_placa' => $data['vehiculo_placa'],
                     'tiene_conductor' => !empty($data['conductor'])
