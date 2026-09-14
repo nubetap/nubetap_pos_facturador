@@ -400,6 +400,14 @@ trait HasCompanyConfigurations
     // ==================== MÉTODOS ESPECÍFICOS PARA CONFIGURACIONES DE SERVICIOS ====================
 
     /**
+     * API REST de GRE (nueva plataforma). Es un canal distinto al SOAP de
+     * factura/boleta: OAuth2 contra api-cpe, no usuario/clave SOL sobre WSDL.
+     * Fuente: Manual de Servicios Web - Plataforma Nueva GRE (SUNAT).
+     */
+    public const GRE_API_ENDPOINT_BETA = 'https://api-cpe-beta.sunat.gob.pe/v1/';
+    public const GRE_API_ENDPOINT_PRODUCCION = 'https://api-cpe.sunat.gob.pe/v1/';
+
+    /**
      * Obtener endpoints de servicios SUNAT
      */
     public function getSunatEndpoints(string $serviceType = 'facturacion'): array
@@ -419,6 +427,22 @@ trait HasCompanyConfigurations
             return [
                 'endpoint' => $endpoint,
                 'wsdl' => $endpoint ? str_replace('billService', 'billService?wsdl', $endpoint) : '',
+                'timeout' => $this->modo_produccion ? 45 : 30,
+            ];
+        }
+
+        // GRE: sin configuración explícita, usar el endpoint oficial del
+        // ambiente. Antes se devolvía cadena vacía, lo que obligaba a
+        // hardcodear la URL en el servicio de emisión.
+        if ($serviceType === 'guias_remision') {
+            $endpoint = $this->modo_produccion
+                ? self::GRE_API_ENDPOINT_PRODUCCION
+                : self::GRE_API_ENDPOINT_BETA;
+
+            return [
+                'endpoint' => $endpoint,
+                'api_endpoint' => $endpoint,
+                'wsdl' => '',
                 'timeout' => $this->modo_produccion ? 45 : 30,
             ];
         }

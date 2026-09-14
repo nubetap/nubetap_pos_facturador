@@ -318,17 +318,19 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
     Route::prefix('dispatch-guides')->group(function () {
         Route::get('/', [DispatchGuideController::class, 'index']);
         Route::post('/', [DispatchGuideController::class, 'store']);
-        Route::get('/{id}', [DispatchGuideController::class, 'show']);
-        Route::post('/{id}/send-sunat', [DispatchGuideController::class, 'sendToSunat']);
-        Route::post('/{id}/check-status', [DispatchGuideController::class, 'checkStatus']);
-        Route::get('/{id}/download-xml', [DispatchGuideController::class, 'downloadXml']);
-        Route::get('/{id}/download-cdr', [DispatchGuideController::class, 'downloadCdr']);
-        Route::get('/{id}/download-pdf', [DispatchGuideController::class, 'downloadPdf']);
-        Route::post('/{id}/generate-pdf', [DispatchGuideController::class, 'generatePdf']);
 
-        // Catálogos
+        // Catálogos ANTES que /{id}: si van después, la ruta comodín captura
+        // "catalogs" como id y devuelve 404. Eran inalcanzables.
         Route::get('/catalogs/transfer-reasons', [DispatchGuideController::class, 'getTransferReasons']);
         Route::get('/catalogs/transport-modes', [DispatchGuideController::class, 'getTransportModes']);
+
+        Route::get('/{id}', [DispatchGuideController::class, 'show'])->whereNumber('id');
+        Route::post('/{id}/send-sunat', [DispatchGuideController::class, 'sendToSunat'])->whereNumber('id');
+        Route::post('/{id}/check-status', [DispatchGuideController::class, 'checkStatus'])->whereNumber('id');
+        Route::get('/{id}/download-xml', [DispatchGuideController::class, 'downloadXml'])->whereNumber('id');
+        Route::get('/{id}/download-cdr', [DispatchGuideController::class, 'downloadCdr'])->whereNumber('id');
+        Route::get('/{id}/download-pdf', [DispatchGuideController::class, 'downloadPdf'])->whereNumber('id');
+        Route::post('/{id}/generate-pdf', [DispatchGuideController::class, 'generatePdf'])->whereNumber('id');
     });
 
     // ========================

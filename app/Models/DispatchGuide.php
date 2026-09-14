@@ -25,6 +25,7 @@ class DispatchGuide extends Model
         // Datos del envío
         'cod_traslado',
         'des_traslado',
+        'observaciones',
         'mod_traslado',
         'peso_total',
         'und_peso_total',

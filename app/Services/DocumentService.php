@@ -2173,6 +2173,45 @@ class DocumentService
         });
     }
 
+    /**
+     * Endpoint de la API REST de GRE para el ambiente de la empresa.
+     *
+     * La GRE viaja por un canal distinto al de factura/boleta: API REST con
+     * OAuth2 contra api-cpe, no SOAP. El ambiente lo manda `modo_produccion`,
+     * igual que el resto de la emisión, para que una empresa en producción no
+     * pueda enviar guías a beta ni al revés.
+     *
+     * @throws Exception si el endpoint configurado no es de SUNAT.
+     */
+    protected function resolveGreApiEndpoint($company): string
+    {
+        $endpoint = trim((string) $company->getGuideApiEndpoint());
+
+        if ($endpoint === '') {
+            throw new Exception(
+                'No hay endpoint de GRE configurado para la empresa: ' . $company->razon_social
+            );
+        }
+
+        // Guard de seguridad: una guía solo puede salir hacia SUNAT. Evita
+        // que un override de configuración la mande a un simulador de
+        // terceros haciendo creer al cliente que emitió de verdad.
+        $host = parse_url($endpoint, PHP_URL_HOST) ?: '';
+        if (!str_ends_with($host, '.sunat.gob.pe')) {
+            throw new Exception(
+                "Endpoint de GRE no autorizado ({$host}). Debe ser un dominio de SUNAT."
+            );
+        }
+
+        Log::info('Endpoint GRE resuelto', [
+            'company_id' => $company->id,
+            'modo_produccion' => (bool) $company->modo_produccion,
+            'endpoint' => $endpoint,
+        ]);
+
+        return $endpoint;
+    }
+
     public function sendDispatchGuideToSunat(DispatchGuide $guide): array
     {
         try {
@@ -2184,6 +2223,20 @@ class DocumentService
                 'client_id' => $guide->client_id,
             ]);
             
+            // ValidaPSE no intermedia GRE: la empresa emite con su propio
+            // certificado y credenciales OAuth2. Sin este guard, una empresa
+            // con cpe_provider=validapse (que no tiene certificado propio)
+            // fallaba más abajo con "No se pudo cargar el certificado",
+            // ocultando la causa real.
+            $validapseGuard = $this->guardValidapseUnsupported(
+                $guide->company,
+                $guide,
+                'sendDispatchGuideToSunat'
+            );
+            if ($validapseGuard !== null) {
+                return $validapseGuard;
+            }
+
             // Cargar destinatario directamente
             $destinatario = \App\Models\Client::find($guide->client_id);
             if (!$destinatario) {
@@ -2225,6 +2278,22 @@ class DocumentService
                 ->setFecTraslado($guide->fecha_traslado)
                 ->setPesoTotal($guide->peso_total)
                 ->setUndPesoTotal($guide->und_peso_total);
+
+            // Descripción del motivo: SUNAT la exige cuando el motivo es
+            // "13 - Otros" (catálogo 20). Sin esto el envío se rechaza.
+            if (!empty($guide->des_traslado)) {
+                $envio->setDesTraslado($guide->des_traslado);
+            } elseif ($guide->cod_traslado === '13') {
+                throw new Exception(
+                    'El motivo de traslado "13 - Otros" requiere una descripción '
+                    . '(des_traslado) según el catálogo 20 de SUNAT.'
+                );
+            }
+
+            // Número de bultos: solo aplica a importaciones (motivo 08).
+            if ($guide->num_bultos !== null && (int) $guide->num_bultos > 0) {
+                $envio->setNumBultos((int) $guide->num_bultos);
+            }
             
             // Direcciones con soporte para traslados misma empresa (ejemplo: guia-misma-empresa.php)
             $llegada = new \Greenter\Model\Despatch\Direction(
@@ -2391,14 +2460,16 @@ class DocumentService
                 $despatch->setAddDocs($relDocs);
             }
             
-            // USAR LA CONFIGURACIÓN DE LA CLASE UTIL DE GREENTER
-            $api = new \Greenter\Api([
-                'auth' => 'https://gre-test.nubefact.com/v1',
-                'cpe' => 'https://gre-test.nubefact.com/v1',
-            ]);
-            
-            // Obtener credenciales GRE de la configuración de la empresa
+            // Endpoint según el ambiente de la empresa (beta o producción).
+            // Antes estaba fijo al simulador de un tercero: ninguna guía
+            // llegaba a SUNAT aunque la empresa estuviera en producción.
             $company = $guide->company;
+            $greEndpoint = $this->resolveGreApiEndpoint($company);
+
+            $api = new \Greenter\Api([
+                'auth' => $greEndpoint,
+                'cpe' => $greEndpoint,
+            ]);
 
             // Configurar certificado usando StorageService
             $certificadoContent = $this->storageService->getCertificateContent($company->ruc);
@@ -2530,10 +2601,13 @@ class DocumentService
                 'ticket' => $guide->ticket
             ]);
             
-            // USAR CONFIGURACIÓN DIRECTA COMO EN ENVÍO
+            // Mismo endpoint que el envío: el ticket solo existe en el
+            // ambiente donde se envió la guía.
+            $greEndpoint = $this->resolveGreApiEndpoint($guide->company);
+
             $api = new \Greenter\Api([
-                'auth' => 'https://gre-test.nubefact.com/v1',
-                'cpe' => 'https://gre-test.nubefact.com/v1',
+                'auth' => $greEndpoint,
+                'cpe' => $greEndpoint,
             ]);
 
             // Configurar certificado usando StorageService
@@ -2545,14 +2619,28 @@ class DocumentService
                 );
             }
 
+            // Credenciales REALES de la empresa. Antes iban fijas las de
+            // demo de SUNAT (RUC 20161515648 / MODDATOS): el CDR consultado
+            // jamás correspondía al contribuyente y el ticket no existía
+            // bajo esas credenciales.
+            if (!$company->hasGreCredentials()) {
+                throw new Exception(
+                    "Las credenciales GRE no están configuradas para la empresa: {$company->razon_social}"
+                );
+            }
+
             $api->setBuilderOptions([
                 'strict_variables' => true,
                 'optimizations' => 0,
-                'debug' => true,
+                'debug' => false,
                 'cache' => false,
             ])
-            ->setApiCredentials('test-85e5b0ae-255c-4891-a595-0b98c65c9854', 'test-Hty/M6QshYvPgItX2P0+Kw==')
-            ->setClaveSOL('20161515648', 'MODDATOS', 'MODDATOS')
+            ->setApiCredentials($company->getGreClientId(), $company->getGreClientSecret())
+            ->setClaveSOL(
+                $company->getGreRucProveedor(),
+                $company->getGreUsuarioSol(),
+                $company->getGreClaveSol()
+            )
             ->setCertificate($certificadoContent);
             
             Log::info("Consultando estado en SUNAT...");
