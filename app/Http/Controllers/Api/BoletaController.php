@@ -248,6 +248,43 @@ class BoletaController extends Controller
     }
 
     /**
+     * Recuperar CDR desde ValidaPSE (empresas cpe_provider=validapse).
+     *
+     * ValidaPSE no ofrece reenvío por API — el reenvío es manual en su panel.
+     * Este endpoint CONSULTA el estado del comprobante en ValidaPSE/SUNAT y,
+     * si ya fue aceptado, persiste el CDR y actualiza estado_sunat. Lo llama
+     * el job horario de Django (recuperar en lugar de reenviar).
+     *
+     * Responde SIEMPRE 200: `success` indica si el CDR ya está disponible.
+     */
+    public function recoverValidapseCdr(string $id): JsonResponse
+    {
+        try {
+            $boleta = Boleta::with(['company', 'branch', 'client'])->findOrFail($id);
+
+            $result = $this->documentService->recoverCdrViaValidapse($boleta);
+
+            if ($result['success']) {
+                return response()->json([
+                    'success' => true,
+                    'data' => $result['document']->load(['company', 'branch', 'client']),
+                    'message' => 'CDR recuperado de ValidaPSE',
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'data' => null,
+                'message' => $result['error']->message ?? 'CDR no disponible aún',
+                'error_code' => $result['error']->code ?? 'UNKNOWN',
+            ]);
+
+        } catch (Exception $e) {
+            return $this->errorResponse('Error al recuperar CDR de ValidaPSE', $e);
+        }
+    }
+
+    /**
      * Descargar XML de boleta
      */
     public function downloadXml(string $id): Response

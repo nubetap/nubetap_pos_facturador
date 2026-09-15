@@ -20,6 +20,7 @@ class UpdateInvoiceRequest extends FormRequest
             'fecha_vencimiento' => 'nullable|date|after_or_equal:fecha_emision',
             'moneda' => 'sometimes|string|in:PEN,USD',
             'tipo_operacion' => 'nullable|string|max:4',
+            'notas' => 'nullable|string|max:250',
             'forma_pago_tipo' => 'sometimes|string|in:Contado,Credito',
             'forma_pago_cuotas' => 'nullable|array',
             'forma_pago_cuotas.*.moneda' => 'required_with:forma_pago_cuotas|string',
