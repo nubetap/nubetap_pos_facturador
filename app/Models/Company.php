@@ -27,6 +27,7 @@ class Company extends Model
         'clave_sol',
         'certificado_pem',
         'certificado_password',
+        'gre_modo_produccion',
         'gre_client_id_beta',
         'gre_client_secret_beta',
         'gre_client_id_produccion',
@@ -48,6 +49,7 @@ class Company extends Model
 
     protected $casts = [
         'modo_produccion' => 'boolean',
+        'gre_modo_produccion' => 'boolean',
         'activo' => 'boolean',
         'validapse_empresa_id' => 'integer',
     ];

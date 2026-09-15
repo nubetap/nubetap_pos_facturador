@@ -25,6 +25,7 @@ class DispatchGuide extends Model
         // Datos del envío
         'cod_traslado',
         'des_traslado',
+        'observaciones',
         'mod_traslado',
         'peso_total',
         'und_peso_total',
@@ -108,6 +109,29 @@ class DispatchGuide extends Model
             '02' => 'Transporte privado',
             default => 'Modalidad no especificada'
         };
+    }
+
+    /**
+     * Vehículos secundarios del traslado.
+     *
+     * Viven dentro del JSON `vehiculo`; este accesor evita que cada
+     * consumidor tenga que conocer esa ruta. Incluye por compatibilidad la
+     * `placa_secundaria` suelta de guías anteriores a la lista.
+     */
+    public function getVehiculosSecundariosAttribute(): array
+    {
+        $vehiculo = $this->vehiculo ?? [];
+
+        $secundarios = $vehiculo['secundarios'] ?? [];
+        if (!empty($secundarios)) {
+            return $secundarios;
+        }
+
+        if (!empty($vehiculo['placa_secundaria'])) {
+            return [['placa' => $vehiculo['placa_secundaria']]];
+        }
+
+        return [];
     }
 
     public function getMotivoTrasladoNameAttribute(): string

@@ -2251,9 +2251,44 @@ class DocumentService
                 $destinatario = $this->getOrCreateClient($data['destinatario'], $company->id);
             }
             
-            // Obtener siguiente correlativo automático (ignorar correlativo enviado)
+            // Correlativo: Django es la fuente de verdad, igual que en
+            // facturas y boletas. Solo se autogenera si no llega, por
+            // compatibilidad con llamadas directas a la API.
             $serie = $data['serie'];
-            $correlativo = $branch->getNextCorrelative('09', $serie);
+
+            if (!empty($data['correlativo'])) {
+                $correlativoNumero = (int) $data['correlativo'];
+                $correlativo = str_pad((string) $correlativoNumero, 8, '0', STR_PAD_LEFT);
+
+                // Protección contra duplicados: reenviar la misma guía no
+                // debe crear otra.
+                $existing = DispatchGuide::where('company_id', $company->id)
+                    ->where('serie', $serie)
+                    ->where('correlativo', $correlativo)
+                    ->first();
+
+                if ($existing) {
+                    Log::info('Guía duplicada detectada, retornando existente', [
+                        'dispatch_guide_id' => $existing->id,
+                        'numero' => $existing->numero_completo,
+                    ]);
+                    return $existing;
+                }
+
+                $this->syncCorrelativeFromExternal($branch, '09', $serie, $correlativoNumero);
+
+                Log::info('Usando correlativo externo (Django) para guía', [
+                    'serie' => $serie,
+                    'correlativo' => $correlativo,
+                ]);
+            } else {
+                $correlativo = $branch->getNextCorrelative('09', $serie);
+
+                Log::info('Correlativo auto-generado para guía', [
+                    'serie' => $serie,
+                    'correlativo' => $correlativo,
+                ]);
+            }
             
             // Crear la guía de remisión
             $dispatchGuide = DispatchGuide::create([
@@ -2314,6 +2349,10 @@ class DocumentService
                     'placa' => $data['vehiculo_placa'] ?? null,
                     'placa_principal' => $data['vehiculo_placa'] ?? null,
                     'placa_secundaria' => $data['vehiculo_placa_secundaria'] ?? null,
+                    // Lista completa de secundarios: el request ya los valida
+                    // (StoreDispatchGuideRequest:76) pero antes se perdían,
+                    // quedando solo una placa suelta.
+                    'secundarios' => $data['vehiculos_secundarios'] ?? [],
                     'conductor' => $data['mod_traslado'] === '02' && !isset($data['indicadores']) ? [
                         'tipo' => $data['conductor_tipo'] ?? null,
                         'tipo_doc' => $data['conductor_tipo_doc'] ?? null,
@@ -2336,6 +2375,51 @@ class DocumentService
         });
     }
 
+    /**
+     * Endpoint de la API REST de GRE para el ambiente de la empresa.
+     *
+     * La GRE viaja por un canal distinto al de factura/boleta: API REST con
+     * OAuth2 contra api-cpe, no SOAP. El ambiente lo manda `gre_modo_produccion`,
+     * independiente del de factura/boleta: una empresa puede facturar en
+     * producción mientras prueba sus guías en beta.
+     *
+     * @throws Exception si el endpoint configurado no es de SUNAT.
+     */
+    protected function resolveGreApiEndpoint($company): array
+    {
+        $endpoint = trim((string) $company->getGuideApiEndpoint());
+
+        if ($endpoint === '') {
+            throw new Exception(
+                'No hay endpoint de GRE configurado para la empresa: ' . $company->razon_social
+            );
+        }
+
+        // Guard de seguridad: una guía solo puede salir hacia SUNAT. Evita
+        // que un override de configuración la mande a un simulador de
+        // terceros haciendo creer al cliente que emitió de verdad.
+        $host = parse_url($endpoint, PHP_URL_HOST) ?: '';
+        if (!str_ends_with($host, '.sunat.gob.pe')) {
+            throw new Exception(
+                "Endpoint de GRE no autorizado ({$host}). Debe ser un dominio de SUNAT."
+            );
+        }
+
+        // auth y cpe son hosts DISTINTOS: el token se pide a api-seguridad
+        // y el comprobante se envía a api-cpe. Pasar el mismo valor a ambos
+        // hace que la autenticación golpee el host equivocado.
+        $authEndpoint = $company->getGreAuthEndpoint();
+
+        Log::info('Endpoint GRE resuelto', [
+            'company_id' => $company->id,
+            'gre_modo_produccion' => $company->greUsesProduction(),
+            'cpe' => $endpoint,
+            'auth' => $authEndpoint,
+        ]);
+
+        return ['auth' => $authEndpoint, 'cpe' => $endpoint];
+    }
+
     public function sendDispatchGuideToSunat(DispatchGuide $guide): array
     {
         try {
@@ -2347,6 +2431,20 @@ class DocumentService
                 'client_id' => $guide->client_id,
             ]);
             
+            // ValidaPSE no intermedia GRE: la empresa emite con su propio
+            // certificado y credenciales OAuth2. Sin este guard, una empresa
+            // con cpe_provider=validapse (que no tiene certificado propio)
+            // fallaba más abajo con "No se pudo cargar el certificado",
+            // ocultando la causa real.
+            $validapseGuard = $this->guardValidapseUnsupported(
+                $guide->company,
+                $guide,
+                'sendDispatchGuideToSunat'
+            );
+            if ($validapseGuard !== null) {
+                return $validapseGuard;
+            }
+
             // Cargar destinatario directamente
             $destinatario = \App\Models\Client::find($guide->client_id);
             if (!$destinatario) {
@@ -2388,6 +2486,22 @@ class DocumentService
                 ->setFecTraslado($guide->fecha_traslado)
                 ->setPesoTotal($guide->peso_total)
                 ->setUndPesoTotal($guide->und_peso_total);
+
+            // Descripción del motivo: SUNAT la exige cuando el motivo es
+            // "13 - Otros" (catálogo 20). Sin esto el envío se rechaza.
+            if (!empty($guide->des_traslado)) {
+                $envio->setDesTraslado($guide->des_traslado);
+            } elseif ($guide->cod_traslado === '13') {
+                throw new Exception(
+                    'El motivo de traslado "13 - Otros" requiere una descripción '
+                    . '(des_traslado) según el catálogo 20 de SUNAT.'
+                );
+            }
+
+            // Número de bultos: solo aplica a importaciones (motivo 08).
+            if ($guide->num_bultos !== null && (int) $guide->num_bultos > 0) {
+                $envio->setNumBultos((int) $guide->num_bultos);
+            }
             
             // Direcciones con soporte para traslados misma empresa (ejemplo: guia-misma-empresa.php)
             $llegada = new \Greenter\Model\Despatch\Direction(
@@ -2491,18 +2605,34 @@ class DocumentService
                         $vehiculo = new \Greenter\Model\Despatch\Vehicle();
                         $vehiculo->setPlaca($placaPrincipal);
                         
-                        // Vehículo secundario (opcional)
-                        if (isset($guide->vehiculo['placa_secundaria'])) {
-                            $vehiculoSecundario = new \Greenter\Model\Despatch\Vehicle();
-                            $vehiculoSecundario->setPlaca($guide->vehiculo['placa_secundaria']);
-                            $vehiculo->setSecundarios([$vehiculoSecundario]);
+                        // Vehículos secundarios. SUNAT admite varios; antes
+                        // solo viajaba 'placa_secundaria' y el resto se perdía.
+                        $placasSecundarias = [];
+                        foreach (($guide->vehiculo['secundarios'] ?? []) as $sec) {
+                            $placa = is_array($sec) ? ($sec['placa'] ?? null) : $sec;
+                            if (!empty($placa)) {
+                                $placasSecundarias[] = $placa;
+                            }
                         }
-                        
+                        if (empty($placasSecundarias) && !empty($guide->vehiculo['placa_secundaria'])) {
+                            $placasSecundarias[] = $guide->vehiculo['placa_secundaria'];
+                        }
+
+                        if (!empty($placasSecundarias)) {
+                            $vehiculosSecundarios = [];
+                            foreach (array_unique($placasSecundarias) as $placa) {
+                                $vehiculoSecundario = new \Greenter\Model\Despatch\Vehicle();
+                                $vehiculoSecundario->setPlaca($placa);
+                                $vehiculosSecundarios[] = $vehiculoSecundario;
+                            }
+                            $vehiculo->setSecundarios($vehiculosSecundarios);
+                        }
+
                         $envio->setVehiculo($vehiculo);
-                        
+
                         Log::info("Configurado vehículo", [
                             'placa_principal' => $placaPrincipal,
-                            'placa_secundaria' => $guide->vehiculo['placa_secundaria'] ?? null
+                            'placas_secundarias' => $placasSecundarias,
                         ]);
                     }
                 }
@@ -2554,14 +2684,13 @@ class DocumentService
                 $despatch->setAddDocs($relDocs);
             }
             
-            // USAR LA CONFIGURACIÓN DE LA CLASE UTIL DE GREENTER
-            $api = new \Greenter\Api([
-                'auth' => 'https://gre-test.nubefact.com/v1',
-                'cpe' => 'https://gre-test.nubefact.com/v1',
-            ]);
-            
-            // Obtener credenciales GRE de la configuración de la empresa
+            // Endpoint según el ambiente de la empresa (beta o producción).
+            // Antes estaba fijo al simulador de un tercero: ninguna guía
+            // llegaba a SUNAT aunque la empresa estuviera en producción.
             $company = $guide->company;
+            $greEndpoint = $this->resolveGreApiEndpoint($company);
+
+            $api = new \Greenter\Api($greEndpoint);
 
             // Configurar certificado usando StorageService
             $certificadoContent = $this->storageService->getCertificateContent($company->ruc);
@@ -2583,7 +2712,7 @@ class DocumentService
             
             Log::info("Configurando credenciales GRE desde base de datos", [
                 'company_id' => $company->id,
-                'modo_produccion' => $company->modo_produccion,
+                'gre_modo_produccion' => $company->greUsesProduction(),
                 'client_id' => $clientId ? '***' . substr($clientId, -4) : 'No configurado',
                 'ruc_proveedor' => $rucProveedor,
                 'usuario_sol' => $usuarioSol,
@@ -2693,11 +2822,11 @@ class DocumentService
                 'ticket' => $guide->ticket
             ]);
             
-            // USAR CONFIGURACIÓN DIRECTA COMO EN ENVÍO
-            $api = new \Greenter\Api([
-                'auth' => 'https://gre-test.nubefact.com/v1',
-                'cpe' => 'https://gre-test.nubefact.com/v1',
-            ]);
+            // Mismo endpoint que el envío: el ticket solo existe en el
+            // ambiente donde se envió la guía.
+            $greEndpoint = $this->resolveGreApiEndpoint($guide->company);
+
+            $api = new \Greenter\Api($greEndpoint);
 
             // Configurar certificado usando StorageService
             $company = $guide->company;
@@ -2708,14 +2837,28 @@ class DocumentService
                 );
             }
 
+            // Credenciales REALES de la empresa. Antes iban fijas las de
+            // demo de SUNAT (RUC 20161515648 / MODDATOS): el CDR consultado
+            // jamás correspondía al contribuyente y el ticket no existía
+            // bajo esas credenciales.
+            if (!$company->hasGreCredentials()) {
+                throw new Exception(
+                    "Las credenciales GRE no están configuradas para la empresa: {$company->razon_social}"
+                );
+            }
+
             $api->setBuilderOptions([
                 'strict_variables' => true,
                 'optimizations' => 0,
-                'debug' => true,
+                'debug' => false,
                 'cache' => false,
             ])
-            ->setApiCredentials('test-85e5b0ae-255c-4891-a595-0b98c65c9854', 'test-Hty/M6QshYvPgItX2P0+Kw==')
-            ->setClaveSOL('20161515648', 'MODDATOS', 'MODDATOS')
+            ->setApiCredentials($company->getGreClientId(), $company->getGreClientSecret())
+            ->setClaveSOL(
+                $company->getGreRucProveedor(),
+                $company->getGreUsuarioSol(),
+                $company->getGreClaveSol()
+            )
             ->setCertificate($certificadoContent);
             
             Log::info("Consultando estado en SUNAT...");
@@ -2872,7 +3015,7 @@ class DocumentService
                 // Transporte privado normal - con conductor y vehículo
                 $data['conductor'] = $guide->vehiculo['conductor'] ?? [];
                 $data['vehiculo_placa'] = $guide->vehiculo['placa_principal'] ?? $guide->vehiculo['placa'] ?? '';
-                $data['vehiculos_secundarios'] = [];
+                $data['vehiculos_secundarios'] = $guide->vehiculo['secundarios'] ?? [];
                 Log::info("prepareDispatchGuideData: Configurando transporte privado normal", [
                     'vehiculo_placa' => $data['vehiculo_placa'],
                     'tiene_conductor' => !empty($data['conductor'])

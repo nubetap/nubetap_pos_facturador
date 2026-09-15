@@ -4,9 +4,17 @@ use App\Models\DispatchGuide;
 use App\Models\Company;
 use App\Models\Branch;
 use App\Models\Client;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function () {
+    // Las rutas /api/v1 exigen Sanctum: sin usuario autenticado todas las
+    // peticiones de esta suite respondían 401.
+    $this->user = User::factory()->create();
+    $this->actingAs($this->user);
+});
 
 test('puede crear una guía de remisión básica con transporte privado', function () {
     // Preparar datos de prueba
@@ -26,7 +34,7 @@ test('puede crear una guía de remisión básica con transporte privado', functi
         'cod_traslado' => '01',
         'des_traslado' => 'Venta',
         'mod_traslado' => '02', // Transporte privado
-        'fec_traslado' => '2025-09-07',
+        'fecha_traslado' => '2025-09-07',
         'peso_total' => 45.5,
         'und_peso_total' => 'KGM',
         'num_bultos' => 3,
@@ -76,10 +84,12 @@ test('puede crear una guía de remisión básica con transporte privado', functi
     expect($guide)->not->toBeNull();
     expect($guide->company_id)->toBe($company->id);
     expect($guide->branch_id)->toBe($branch->id);
-    expect($guide->destinatario_id)->toBe($client->id);
+    // La columna es client_id; "destinatario" es solo el nombre de la
+    // relación. El conductor vive dentro del JSON `vehiculo`.
+    expect($guide->client_id)->toBe($client->id);
     expect($guide->mod_traslado)->toBe('02');
     expect($guide->peso_total)->toEqual(45.5);
-    expect($guide->conductor_nombres)->toBe('CARLOS');
+    expect($guide->vehiculo['conductor']['nombres'])->toBe('CARLOS');
 });
 
 test('puede crear una guía de remisión con transporte público', function () {
@@ -98,7 +108,7 @@ test('puede crear una guía de remisión con transporte público', function () {
         'cod_traslado' => '01',
         'des_traslado' => 'Venta',
         'mod_traslado' => '01', // Transporte público
-        'fec_traslado' => '2025-09-07',
+        'fecha_traslado' => '2025-09-07',
         'peso_total' => 30.0,
         'und_peso_total' => 'KGM',
         'num_bultos' => 2,
@@ -140,8 +150,9 @@ test('puede crear una guía de remisión con transporte público', function () {
 
     $guide = DispatchGuide::first();
     expect($guide->mod_traslado)->toBe('01');
-    expect($guide->transportista_razon_social)->toBe('TRANSPORTES PUBLICOS SAC');
-    expect($guide->transportista_nro_mtc)->toBe('MTC001');
+    // El transportista se persiste como JSON, no como columnas sueltas.
+    expect($guide->transportista['razon_social'])->toBe('TRANSPORTES PUBLICOS SAC');
+    expect($guide->transportista['nro_mtc'])->toBe('MTC001');
 });
 
 test('puede crear guía de remisión para traslado entre establecimientos', function () {
@@ -160,7 +171,7 @@ test('puede crear guía de remisión para traslado entre establecimientos', func
         'cod_traslado' => '04',
         'des_traslado' => 'Traslado entre establecimientos de la misma empresa',
         'mod_traslado' => '02',
-        'fec_traslado' => '2025-09-07',
+        'fecha_traslado' => '2025-09-07',
         'peso_total' => 75.0,
         'und_peso_total' => 'KGM',
         'num_bultos' => 5,
@@ -212,7 +223,7 @@ test('puede crear guía con vehículos secundarios', function () {
         'fecha_emision' => '2025-09-06',
         'cod_traslado' => '01',
         'mod_traslado' => '02',
-        'fec_traslado' => '2025-09-07',
+        'fecha_traslado' => '2025-09-07',
         'peso_total' => 100.0,
         'und_peso_total' => 'KGM',
         'num_bultos' => 10,
@@ -271,7 +282,7 @@ test('valida campos requeridos para transporte privado', function () {
         'fecha_emision' => '2025-09-06',
         'cod_traslado' => '01',
         'mod_traslado' => '02', // Transporte privado pero sin datos de conductor
-        'fec_traslado' => '2025-09-07',
+        'fecha_traslado' => '2025-09-07',
         'peso_total' => 30.0,
         'und_peso_total' => 'KGM',
         'num_bultos' => 2,
@@ -315,7 +326,7 @@ test('valida campos requeridos para transporte público', function () {
         'fecha_emision' => '2025-09-06',
         'cod_traslado' => '01',
         'mod_traslado' => '01', // Transporte público pero sin datos de transportista
-        'fec_traslado' => '2025-09-07',
+        'fecha_traslado' => '2025-09-07',
         'peso_total' => 30.0,
         'und_peso_total' => 'KGM',
         'num_bultos' => 2,

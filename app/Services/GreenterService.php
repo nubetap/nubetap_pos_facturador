@@ -1279,21 +1279,17 @@ class GreenterService
                 'xml_length' => $api->getLastXml() ? strlen($api->getLastXml()) : 0
             ]);
             
-            // Si no es exitoso, revisar el XML para debug
+            // Si no es exitoso, dejar traza del rechazo. NO se escribe el XML
+            // a storage/logs: el filesystem del contenedor es efímero (el
+            // archivo se pierde en el siguiente deploy) y el XML lleva datos
+            // del contribuyente y de sus clientes. El XML firmado ya se
+            // persiste por FileService cuando el envío prospera.
             if (!$result->isSuccess()) {
-                $xml = $api->getLastXml();
-                if ($xml) {
-                    // Guardar XML completo para revisión
-                    $xmlPath = storage_path('logs/debug_despatch_' . date('Y-m-d_H-i-s') . '.xml');
-                    file_put_contents($xmlPath, $xml);
-                    
-                    Log::warning('Guía rechazada. XML guardado en:', [
-                        'xml_path' => $xmlPath,
-                        'error_code' => $errorInfo['code'] ?? 'N/A',
-                        'error_message' => $errorInfo['message'] ?? 'N/A',
-                        'xml_preview' => substr($xml, 0, 800)
-                    ]);
-                }
+                Log::warning('Guía de remisión rechazada por SUNAT', [
+                    'error_code' => $errorInfo['code'] ?? 'N/A',
+                    'error_message' => $errorInfo['message'] ?? 'N/A',
+                    'xml_generado' => $api->getLastXml() !== null,
+                ]);
             }
             
             return [

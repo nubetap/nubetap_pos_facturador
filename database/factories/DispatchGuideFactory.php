@@ -63,8 +63,8 @@ class DispatchGuideFactory extends Factory
                 'placa_principal' => 'ABC123',
                 'placa_secundaria' => null,
                 'autorizacion' => null
-            ]
-            
+            ],
+
             // Detalles de productos
             'detalles' => [
                 [
@@ -95,7 +95,6 @@ class DispatchGuideFactory extends Factory
             'estado_sunat' => 'PENDIENTE',
             'respuesta_sunat' => null,
             'ticket' => null,
-            'codigo_hash' => null,
             
             // Auditoría
             'usuario_creacion' => 'SYSTEM',

@@ -55,7 +55,7 @@ test('puede obtener credenciales GRE de una empresa', function () {
 
 test('puede actualizar credenciales GRE para ambiente beta', function () {
     $credenciales = [
-        'modo' => 'beta',
+        'environment' => 'beta',
         'client_id' => 'test-nueva-client-id',
         'client_secret' => 'test-nuevo-secret-123456',
         'ruc_proveedor' => '20987654321',
@@ -80,7 +80,7 @@ test('puede actualizar credenciales GRE para ambiente beta', function () {
 
 test('valida credenciales requeridas para ambiente producción', function () {
     $credenciales = [
-        'modo' => 'produccion',
+        'environment' => 'produccion',
         'client_id' => 'prod-client-id',
         'client_secret' => 'prod-secret-123456',
         // Faltan campos obligatorios para producción
@@ -95,7 +95,7 @@ test('valida credenciales requeridas para ambiente producción', function () {
 
 test('no permite usar credenciales de beta en producción', function () {
     $credenciales = [
-        'modo' => 'produccion',
+        'environment' => 'produccion',
         'client_id' => 'test-85e5b0ae-255c-4891-a595-0b98c65c9854', // Credencial de beta
         'client_secret' => 'prod-secret-123456',
         'ruc_proveedor' => '20123456789',
@@ -107,37 +107,45 @@ test('no permite usar credenciales de beta en producción', function () {
         ->putJson("/api/v1/companies/{$this->company->id}/gre-credentials", $credenciales);
 
     $response->assertStatus(422)
-        ->assertJsonValidationErrors(['modo']);
+        ->assertJsonValidationErrors(['environment']);
 });
 
-test('puede probar conexión con credenciales configuradas', function () {
-    // Configurar credenciales primero
-    $this->company->setGreCredentials('beta', [
+test('el test de conexión rechaza credenciales inválidas contra SUNAT', function () {
+    // El endpoint consulta a SUNAT de verdad (OAuth2). Con credenciales de
+    // relleno la respuesta debe ser un rechazo, nunca un "válido": antes solo
+    // comprobaba que los campos no estuvieran vacíos y daba 200 siempre, así
+    // que unas credenciales equivocadas se descubrían recién al emitir.
+    $this->company->setGreCredentials([
         'client_id' => 'test-client-id',
         'client_secret' => 'test-secret-123456',
         'ruc_proveedor' => '20123456789',
         'usuario_sol' => 'TESTUSER',
         'clave_sol' => 'testpass123',
-    ]);
+    ], 'beta');
 
     $response = $this->actingAs($this->user)
         ->postJson("/api/v1/companies/{$this->company->id}/gre-credentials/test-connection");
 
-    $response->assertStatus(200)
-        ->assertJson([
-            'success' => true,
-        ])
-        ->assertJsonStructure([
-            'success',
-            'message',
-            'data' => [
-                'company_id',
-                'modo',
-                'client_id',
-                'ruc_proveedor',
-                'timestamp'
-            ]
-        ]);
+    expect($response->status())->not->toBe(200);
+    $response->assertJson(['success' => false]);
+});
+
+test('el test de conexión exige los cinco datos del OAuth2', function () {
+    // Sin usuario ni clave SOL no se puede pedir token: debe avisarse antes
+    // de salir a la red, indicando qué falta.
+    $this->company->setGreCredentials([
+        'client_id' => 'test-client-id',
+        'client_secret' => 'test-secret-123456',
+        'ruc_proveedor' => '20123456789',
+        'usuario_sol' => '',
+        'clave_sol' => '',
+    ], 'beta');
+
+    $response = $this->actingAs($this->user)
+        ->postJson("/api/v1/companies/{$this->company->id}/gre-credentials/test-connection");
+
+    $response->assertStatus(400)->assertJson(['success' => false]);
+    expect($response->json('message'))->toContain('Usuario SOL');
 });
 
 test('falla test de conexión sin credenciales configuradas', function () {
@@ -153,17 +161,17 @@ test('falla test de conexión sin credenciales configuradas', function () {
 
 test('puede limpiar credenciales para un ambiente', function () {
     // Configurar credenciales primero
-    $this->company->setGreCredentials('beta', [
+    $this->company->setGreCredentials([
         'client_id' => 'test-client-id',
         'client_secret' => 'test-secret',
         'ruc_proveedor' => '20123456789',
         'usuario_sol' => 'TEST',
         'clave_sol' => 'test123',
-    ]);
+    ], 'beta');
 
     $response = $this->actingAs($this->user)
         ->deleteJson("/api/v1/companies/{$this->company->id}/gre-credentials/clear", [
-            'modo' => 'beta'
+            'environment' => 'beta'
         ]);
 
     $response->assertStatus(200)
@@ -179,18 +187,18 @@ test('puede limpiar credenciales para un ambiente', function () {
 
 test('puede copiar credenciales entre ambientes', function () {
     // Configurar credenciales en beta
-    $this->company->setGreCredentials('beta', [
+    $this->company->setGreCredentials([
         'client_id' => 'beta-client-id',
         'client_secret' => 'beta-secret',
         'ruc_proveedor' => '20123456789',
         'usuario_sol' => 'BETAUSER',
         'clave_sol' => 'betapass',
-    ]);
+    ], 'beta');
 
     $response = $this->actingAs($this->user)
         ->postJson("/api/v1/companies/{$this->company->id}/gre-credentials/copy", [
-            'origen' => 'beta',
-            'destino' => 'produccion'
+            'from_environment' => 'beta',
+            'to_environment' => 'produccion'
         ]);
 
     $response->assertStatus(200)
@@ -199,20 +207,21 @@ test('puede copiar credenciales entre ambientes', function () {
             'message' => 'Credenciales copiadas de beta a produccion'
         ]);
 
-    // Verificar que se copiaron
-    $credencialesProduccion = $this->company->getConfig('credenciales_gre.produccion');
-    expect($credencialesProduccion['client_id'])->toBe('beta-client-id');
+    // Verificar que se copiaron. Las credenciales viven en columnas del
+    // modelo (gre_client_id_*), no en company_configurations.
+    $this->company->refresh();
+    expect($this->company->gre_client_id_produccion)->toBe('beta-client-id');
 });
 
 test('no puede copiar credenciales del mismo ambiente', function () {
     $response = $this->actingAs($this->user)
         ->postJson("/api/v1/companies/{$this->company->id}/gre-credentials/copy", [
-            'origen' => 'beta',
-            'destino' => 'beta'
+            'from_environment' => 'beta',
+            'to_environment' => 'beta'
         ]);
 
     $response->assertStatus(422)
-        ->assertJsonValidationErrors(['destino']);
+        ->assertJsonValidationErrors(['to_environment']);
 });
 
 test('puede obtener valores por defecto para un ambiente', function () {
@@ -223,19 +232,19 @@ test('puede obtener valores por defecto para un ambiente', function () {
         ->assertJsonStructure([
             'success',
             'data' => [
-                'modo',
-                'credenciales_default' => [
+                'environment',
+                'credentials_default' => [
                     'client_id',
                     'client_secret',
                     'ruc_proveedor',
                     'usuario_sol',
                     'clave_sol',
                 ],
-                'descripcion'
+                'description'
             ]
         ]);
 
-    expect($response->json('data.modo'))->toBe('beta');
+    expect($response->json('data.environment'))->toBe('beta');
 });
 
 test('rechaza ambiente inválido en valores por defecto', function () {

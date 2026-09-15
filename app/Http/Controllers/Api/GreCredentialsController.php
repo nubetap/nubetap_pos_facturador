@@ -45,7 +45,7 @@ class GreCredentialsController extends Controller
                 'data' => [
                     'company_id' => $company->id,
                     'company_name' => $company->razon_social,
-                    'modo_actual' => $company->modo_produccion ? 'produccion' : 'beta',
+                    'modo_actual' => $company->greUsesProduction() ? 'produccion' : 'beta',
                     'credenciales_configuradas' => $company->hasGreCredentials(),
                     'credenciales' => $credentials,
                 ]
@@ -70,15 +70,33 @@ class GreCredentialsController extends Controller
     public function update(Request $request, Company $company): JsonResponse
     {
         try {
+            $esProduccion = $request->input('environment') === 'produccion';
+
+            // En producción los cinco datos son obligatorios: sin RUC,
+            // usuario y clave SOL no se puede obtener el token OAuth2 y la
+            // guía fallaría recién al emitirse. En beta se permiten parciales
+            // para poder ir cargando la configuración.
+            $reglaSol = $esProduccion ? 'required' : 'nullable';
+
             $validated = $request->validate([
                 'environment' => 'required|in:beta,produccion',
                 'client_id' => 'required|string|max:255',
                 'client_secret' => 'required|string|max:255',
-                'ruc_proveedor' => 'nullable|string|size:11|regex:/^\d{11}$/',
-                'usuario_sol' => 'nullable|string|max:100',
-                'clave_sol' => 'nullable|string|max:100'
+                'ruc_proveedor' => $reglaSol . '|string|size:11|regex:/^\d{11}$/',
+                'usuario_sol' => $reglaSol . '|string|max:100',
+                'clave_sol' => $reglaSol . '|string|max:100',
             ]);
-            
+
+            // Las credenciales de demo de SUNAT llevan el prefijo "test-".
+            // Guardarlas como producción deja al cliente creyendo que puede
+            // emitir cuando en realidad apuntaría al ambiente de pruebas.
+            if ($esProduccion && str_starts_with($validated['client_id'], 'test-')) {
+                throw ValidationException::withMessages([
+                    'environment' => 'El client_id corresponde al ambiente de pruebas '
+                        . '(prefijo "test-"). Genere credenciales de producción en su Clave SOL.',
+                ]);
+            }
+
             $environment = $validated['environment'];
             
             // Preparar credenciales sin el campo environment
@@ -143,23 +161,82 @@ class GreCredentialsController extends Controller
             }
 
             $credentials = $company->getGreCredentials();
-            $environment = $company->modo_produccion ? 'produccion' : 'beta';
+            $environment = $company->greUsesProduction() ? 'produccion' : 'beta';
 
-            // Validar que las credenciales estén completas
-            $isValid = !empty($credentials['client_id']) &&
-                      !empty($credentials['client_secret']);
+            // Completitud: los cinco datos son necesarios para el OAuth2.
+            $faltantes = [];
+            foreach ([
+                'client_id' => 'Client ID',
+                'client_secret' => 'Client Secret',
+                'ruc_proveedor' => 'RUC',
+                'usuario_sol' => 'Usuario SOL',
+                'clave_sol' => 'Clave SOL',
+            ] as $campo => $etiqueta) {
+                if (empty($credentials[$campo])) {
+                    $faltantes[] = $etiqueta;
+                }
+            }
 
-            if (!$isValid) {
+            if (!empty($faltantes)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Credenciales incompletas'
+                    'message' => 'Faltan datos para conectar con SUNAT: ' . implode(', ', $faltantes),
                 ], 400);
+            }
+
+            // Prueba REAL contra SUNAT: se pide un token OAuth2. Antes este
+            // endpoint solo comprobaba que los campos no estuvieran vacíos y
+            // respondía "validada correctamente", de modo que credenciales
+            // equivocadas pasaban el test y solo fallaban al emitir.
+            // SUNAT expone un solo host de seguridad; lo que cambia entre
+            // ambientes es el endpoint de envío (api-cpe), no el de token.
+            $authHost = $company->getGreAuthEndpoint();
+
+            $authApi = new \Greenter\Sunat\GRE\Api\AuthApi(
+                new \GuzzleHttp\Client(['timeout' => 20]),
+                (new \Greenter\Sunat\GRE\Configuration())->setHost($authHost)
+            );
+
+            try {
+                $token = $authApi->getToken(
+                    'password',
+                    'https://api-cpe.sunat.gob.pe',
+                    $credentials['client_id'],
+                    $credentials['client_secret'],
+                    $credentials['ruc_proveedor'] . $credentials['usuario_sol'],
+                    $credentials['clave_sol']
+                );
+            } catch (\Greenter\Sunat\GRE\ApiException $e) {
+                Log::warning('Test de conexión GRE rechazado por SUNAT', [
+                    'company_id' => $company->id,
+                    'environment' => $environment,
+                    'http_code' => $e->getCode(),
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getCode() === 401
+                        ? 'SUNAT rechazó las credenciales. Revise client_id, client_secret, '
+                          . 'usuario y clave SOL, y que la aplicación tenga habilitado el '
+                          . 'alcance "GRE Envío de Comprobantes".'
+                        : 'SUNAT respondió con error ' . $e->getCode() . ' al validar las credenciales.',
+                    'data' => ['environment' => $environment],
+                ], 422);
+            }
+
+            $accessToken = $token->getAccessToken();
+            if (empty($accessToken)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'SUNAT no devolvió un token de acceso.',
+                ], 422);
             }
 
             Log::info("Test de conexión GRE", [
                 'company_id' => $company->id,
                 'environment' => $environment,
-                'result' => 'success'
+                'result' => 'success',
+                'expires_in' => $token->getExpiresIn(),
             ]);
 
             return response()->json([
@@ -170,6 +247,7 @@ class GreCredentialsController extends Controller
                     'environment' => $environment,
                     'client_id' => '***' . substr($credentials['client_id'], -4),
                     'ruc_proveedor' => $credentials['ruc_proveedor'],
+                    'token_expira_en' => $token->getExpiresIn(),
                     'timestamp' => now()->toISOString()
                 ]
             ]);
@@ -200,17 +278,22 @@ class GreCredentialsController extends Controller
                 ], 400);
             }
 
+            // Solo endpoints. Antes se devolvían las credenciales de demo de
+            // SUNAT (RUC 20161515648 / MODDATOS) como "valores por defecto"
+            // de beta: cargarlas hacía que las guías se firmaran con la
+            // identidad del contribuyente de pruebas. Cada empresa genera las
+            // suyas en su Clave SOL, no hay defaults posibles.
             $defaults = [
                 'beta' => [
-                    'client_id' => 'test-85e5b0ae-255c-4891-a595-0b98c65c9854',
-                    'client_secret' => '***Kw==', // Ocultar por seguridad
-                    'ruc_proveedor' => '20161515648',
-                    'usuario_sol' => 'MODDATOS',
-                    'clave_sol' => '***TOS', // Ocultar por seguridad
+                    'client_id' => '',
+                    'client_secret' => '',
+                    'ruc_proveedor' => '',
+                    'usuario_sol' => '',
+                    'clave_sol' => '',
                     'endpoints' => [
-                        'api' => 'https://api-cpe-beta.sunat.gob.pe/v1/',
-                        'wsdl' => 'https://e-beta.sunat.gob.pe/ol-ti-itcpgre-beta/billService?wsdl'
-                    ]
+                        'auth' => \App\Models\Company::GRE_AUTH_ENDPOINT,
+                        'api' => \App\Models\Company::GRE_API_ENDPOINT_BETA,
+                    ],
                 ],
                 'produccion' => [
                     'client_id' => '',
@@ -219,10 +302,10 @@ class GreCredentialsController extends Controller
                     'usuario_sol' => '',
                     'clave_sol' => '',
                     'endpoints' => [
-                        'api' => 'https://api-cpe.sunat.gob.pe/v1/',
-                        'wsdl' => 'https://e-guiaremision.sunat.gob.pe/ol-ti-itemision-guia-gem/billService?wsdl'
-                    ]
-                ]
+                        'auth' => \App\Models\Company::GRE_AUTH_ENDPOINT,
+                        'api' => \App\Models\Company::GRE_API_ENDPOINT_PRODUCCION,
+                    ],
+                ],
             ];
 
             return response()->json([
@@ -230,12 +313,11 @@ class GreCredentialsController extends Controller
                 'data' => [
                     'environment' => $mode,
                     'credentials_default' => $defaults[$mode],
-                    'description' => $mode === 'beta' 
-                        ? 'Credenciales de prueba para ambiente BETA'
-                        : 'Credenciales de producción (deben ser configuradas por empresa)',
-                    'note' => $mode === 'beta' 
-                        ? 'Estas credenciales son de prueba y funcionan para testing'
-                        : 'Para producción debe obtener credenciales reales de SUNAT'
+                    'description' => $mode === 'beta'
+                        ? 'Endpoints del ambiente de pruebas (beta) de SUNAT'
+                        : 'Endpoints del ambiente de producción de SUNAT',
+                    'note' => 'Las credenciales las genera cada empresa en su Clave SOL: '
+                        . 'Credenciales de API SUNAT, con el alcance "GRE Envío de Comprobantes".'
                 ]
             ]);
 
@@ -330,6 +412,10 @@ class GreCredentialsController extends Controller
                 ]
             ]);
 
+        } catch (ValidationException $e) {
+            // Sin este catch la validación caía en el genérico y salía como
+            // 500, ocultando qué campo estaba mal.
+            throw $e;
         } catch (Exception $e) {
             Log::error("Error al copiar credenciales GRE", [
                 'company_id' => $company->id,

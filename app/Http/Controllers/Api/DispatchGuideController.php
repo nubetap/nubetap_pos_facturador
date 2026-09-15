@@ -25,6 +25,32 @@ class DispatchGuideController extends Controller
         $this->fileService = $fileService;
     }
 
+    /**
+     * Carga una guía verificando que pertenezca a la empresa indicada.
+     *
+     * El id por sí solo no acredita propiedad: sin este filtro, cualquier
+     * consumidor podía leer o enviar a SUNAT guías de otra empresa pasando
+     * un id ajeno. Cuando no llega `company_id` se mantiene el
+     * comportamiento anterior para no romper a los consumidores actuales,
+     * pero se deja constancia en el log.
+     */
+    private function findGuideForRequest(Request $request, $id): DispatchGuide
+    {
+        $query = DispatchGuide::with(['company', 'branch', 'destinatario']);
+
+        $companyId = $request->input('company_id', $request->query('company_id'));
+        if ($companyId !== null && $companyId !== '') {
+            $query->where('company_id', (int) $companyId);
+        } else {
+            \Illuminate\Support\Facades\Log::warning(
+                'Acceso a guía de remisión sin company_id: no se verifica propiedad',
+                ['dispatch_guide_id' => $id, 'path' => $request->path()]
+            );
+        }
+
+        return $query->findOrFail($id);
+    }
+
     public function index(IndexDispatchGuideRequest $request): JsonResponse
     {
         try {
@@ -100,10 +126,10 @@ class DispatchGuideController extends Controller
         }
     }
 
-    public function show($id): JsonResponse
+    public function show(Request $request, $id): JsonResponse
     {
         try {
-            $dispatchGuide = DispatchGuide::with(['company', 'branch', 'destinatario'])->findOrFail($id);
+            $dispatchGuide = $this->findGuideForRequest($request, $id);
 
             return response()->json([
                 'success' => true,
@@ -120,12 +146,12 @@ class DispatchGuideController extends Controller
         }
     }
 
-    public function sendToSunat($id): JsonResponse
+    public function sendToSunat(Request $request, $id): JsonResponse
     {
         try {
             \Illuminate\Support\Facades\Log::info("=== CONTROLADOR sendToSunat ===", ['dispatch_guide_id' => $id]);
             
-            $dispatchGuide = DispatchGuide::with(['company', 'branch', 'destinatario'])->findOrFail($id);
+            $dispatchGuide = $this->findGuideForRequest($request, $id);
             
             \Illuminate\Support\Facades\Log::info("Guía cargada:", [
                 'id' => $dispatchGuide->id,
@@ -176,10 +202,10 @@ class DispatchGuideController extends Controller
         }
     }
 
-    public function checkStatus($id): JsonResponse
+    public function checkStatus(Request $request, $id): JsonResponse
     {
         try {
-            $dispatchGuide = DispatchGuide::with(['company', 'branch', 'destinatario'])->findOrFail($id);
+            $dispatchGuide = $this->findGuideForRequest($request, $id);
 
             if (empty($dispatchGuide->ticket)) {
                 return response()->json([
@@ -222,10 +248,10 @@ class DispatchGuideController extends Controller
         }
     }
 
-    public function downloadXml($id)
+    public function downloadXml(Request $request, $id)
     {
         try {
-            $dispatchGuide = DispatchGuide::findOrFail($id);
+            $dispatchGuide = $this->findGuideForRequest($request, $id);
             
             $download = $this->fileService->downloadXml($dispatchGuide);
             
@@ -247,10 +273,10 @@ class DispatchGuideController extends Controller
         }
     }
 
-    public function downloadCdr($id)
+    public function downloadCdr(Request $request, $id)
     {
         try {
-            $dispatchGuide = DispatchGuide::findOrFail($id);
+            $dispatchGuide = $this->findGuideForRequest($request, $id);
             
             $download = $this->fileService->downloadCdr($dispatchGuide);
             
@@ -272,15 +298,15 @@ class DispatchGuideController extends Controller
         }
     }
 
-    public function downloadPdf($id, Request $request)
+    public function downloadPdf(Request $request, $id)
     {
-        $dispatchGuide = DispatchGuide::findOrFail($id);
+        $dispatchGuide = $this->findGuideForRequest($request, $id);
         return $this->downloadDocumentPdf($dispatchGuide, $request);
     }
 
-    public function generatePdf($id, Request $request)
+    public function generatePdf(Request $request, $id)
     {
-        $dispatchGuide = DispatchGuide::with(['company', 'branch', 'destinatario'])->findOrFail($id);
+        $dispatchGuide = $this->findGuideForRequest($request, $id);
         return $this->generateDocumentPdf($dispatchGuide, 'dispatch-guide', $request);
     }
 
