@@ -19,6 +19,10 @@ class StoreDispatchGuideRequest extends FormRequest
             'branch_id' => 'required|exists:branches,id',
             'destinatario_id' => 'required|exists:clients,id',
             'serie' => 'required|string|max:4',
+            // Correlativo desde Django (fuente de verdad, igual que en
+            // facturas). Sin esta regla Laravel lo descartaba y el número
+            // del XML divergía del que Django guarda.
+            'correlativo' => 'nullable|integer|min:1|max:99999999',
             'fecha_emision' => 'required|date',
             'version' => 'nullable|string|max:10',
             
@@ -29,7 +33,9 @@ class StoreDispatchGuideRequest extends FormRequest
             'fecha_traslado' => 'required|date|after_or_equal:fecha_emision',
             'peso_total' => 'required|numeric|min:0.001',
             'und_peso_total' => 'required|string|max:3',
-            'num_bultos' => 'required|integer|min:1',
+            // Solo aplica a importaciones (motivo 08). Exigirlo siempre
+            // obligaba a inventar un valor en traslados normales.
+            'num_bultos' => 'nullable|integer|min:1',
             
             // Direcciones - Soporte para formato nested y plano
             'partida' => 'nullable|array',
@@ -59,13 +65,13 @@ class StoreDispatchGuideRequest extends FormRequest
             'transportista_tipo_doc' => 'nullable|string|max:1',
             'transportista_num_doc' => 'nullable|string|max:15',
             'transportista_razon_social' => 'nullable|string|max:255',
-            'transportista_nro_mtc' => 'nullable|string|max:15',
+            'transportista_nro_mtc' => 'nullable|string|max:20',
             
             // Conductor (si es transporte privado)
             'conductor_tipo' => 'nullable|string|in:Principal,Secundario',
             'conductor_tipo_doc' => 'nullable|string|max:1',
             'conductor_num_doc' => 'nullable|string|max:15',
-            'conductor_licencia' => 'nullable|string|max:15',
+            'conductor_licencia' => 'nullable|string|max:20',
             'conductor_nombres' => 'nullable|string|max:100',
             'conductor_apellidos' => 'nullable|string|max:100',
             
@@ -89,7 +95,7 @@ class StoreDispatchGuideRequest extends FormRequest
             'detalles.*.peso_total' => 'nullable|numeric|min:0',
             
             // Observaciones
-            'observaciones' => 'nullable|string|max:1000',
+            'observaciones' => 'nullable|string|max:250',
             'usuario_creacion' => 'nullable|string|max:100',
         ];
     }

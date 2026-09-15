@@ -46,6 +46,9 @@ class UpdateCompanyRequest extends FormRequest
             'endpoint_beta' => 'sometimes|nullable|url|max:255',
             'endpoint_produccion' => 'sometimes|nullable|url|max:255',
             'modo_produccion' => 'sometimes|nullable|in:true,false,1,0',
+            // Ambiente de las guías de remisión, independiente del de
+            // factura/boleta.
+            'gre_modo_produccion' => 'sometimes|nullable|in:true,false,1,0',
             'logo_path' => 'sometimes|nullable|file|mimes:png,jpeg,jpg|max:2048',
             'activo' => 'sometimes|boolean',
             // Proveedor CPE alterno (NRUS): cambiar de greenter↔validapse,

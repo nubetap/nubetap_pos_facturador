@@ -33,6 +33,9 @@ class StoreCompanyRequest extends FormRequest
             'endpoint_beta' => 'nullable|url|max:255',
             'endpoint_produccion' => 'nullable|url|max:255',
             'modo_produccion' => 'nullable|in:true,false,1,0',
+            // Ambiente de las guías de remisión, independiente del de
+            // factura/boleta.
+            'gre_modo_produccion' => 'nullable|in:true,false,1,0',
             'logo_path' => 'nullable|file|mimes:png,jpeg,jpg|max:2048',
             'activo' => 'boolean',
             // Proveedor CPE alterno (NRUS): default 'greenter' a nivel DB,

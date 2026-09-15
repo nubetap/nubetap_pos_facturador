@@ -2088,9 +2088,44 @@ class DocumentService
                 $destinatario = $this->getOrCreateClient($data['destinatario'], $company->id);
             }
             
-            // Obtener siguiente correlativo automático (ignorar correlativo enviado)
+            // Correlativo: Django es la fuente de verdad, igual que en
+            // facturas y boletas. Solo se autogenera si no llega, por
+            // compatibilidad con llamadas directas a la API.
             $serie = $data['serie'];
-            $correlativo = $branch->getNextCorrelative('09', $serie);
+
+            if (!empty($data['correlativo'])) {
+                $correlativoNumero = (int) $data['correlativo'];
+                $correlativo = str_pad((string) $correlativoNumero, 8, '0', STR_PAD_LEFT);
+
+                // Protección contra duplicados: reenviar la misma guía no
+                // debe crear otra.
+                $existing = DispatchGuide::where('company_id', $company->id)
+                    ->where('serie', $serie)
+                    ->where('correlativo', $correlativo)
+                    ->first();
+
+                if ($existing) {
+                    Log::info('Guía duplicada detectada, retornando existente', [
+                        'dispatch_guide_id' => $existing->id,
+                        'numero' => $existing->numero_completo,
+                    ]);
+                    return $existing;
+                }
+
+                $this->syncCorrelativeFromExternal($branch, '09', $serie, $correlativoNumero);
+
+                Log::info('Usando correlativo externo (Django) para guía', [
+                    'serie' => $serie,
+                    'correlativo' => $correlativo,
+                ]);
+            } else {
+                $correlativo = $branch->getNextCorrelative('09', $serie);
+
+                Log::info('Correlativo auto-generado para guía', [
+                    'serie' => $serie,
+                    'correlativo' => $correlativo,
+                ]);
+            }
             
             // Crear la guía de remisión
             $dispatchGuide = DispatchGuide::create([
@@ -2181,9 +2216,9 @@ class DocumentService
      * Endpoint de la API REST de GRE para el ambiente de la empresa.
      *
      * La GRE viaja por un canal distinto al de factura/boleta: API REST con
-     * OAuth2 contra api-cpe, no SOAP. El ambiente lo manda `modo_produccion`,
-     * igual que el resto de la emisión, para que una empresa en producción no
-     * pueda enviar guías a beta ni al revés.
+     * OAuth2 contra api-cpe, no SOAP. El ambiente lo manda `gre_modo_produccion`,
+     * independiente del de factura/boleta: una empresa puede facturar en
+     * producción mientras prueba sus guías en beta.
      *
      * @throws Exception si el endpoint configurado no es de SUNAT.
      */
@@ -2214,7 +2249,7 @@ class DocumentService
 
         Log::info('Endpoint GRE resuelto', [
             'company_id' => $company->id,
-            'modo_produccion' => (bool) $company->modo_produccion,
+            'gre_modo_produccion' => $company->greUsesProduction(),
             'cpe' => $endpoint,
             'auth' => $authEndpoint,
         ]);
@@ -2514,7 +2549,7 @@ class DocumentService
             
             Log::info("Configurando credenciales GRE desde base de datos", [
                 'company_id' => $company->id,
-                'modo_produccion' => $company->modo_produccion,
+                'gre_modo_produccion' => $company->greUsesProduction(),
                 'client_id' => $clientId ? '***' . substr($clientId, -4) : 'No configurado',
                 'ruc_proveedor' => $rucProveedor,
                 'usuario_sol' => $usuarioSol,

@@ -252,8 +252,8 @@ trait HasCompanyConfigurations
      */
     public function getGreCredentials(): array
     {
-        $environment = $this->modo_produccion ? 'produccion' : 'beta';
-        
+        $environment = $this->greUsesProduction() ? 'produccion' : 'beta';
+
         return [
             'client_id' => $this->getGreClientId(),
             'client_secret' => $this->getGreClientSecret(),
@@ -269,8 +269,8 @@ trait HasCompanyConfigurations
      */
     public function getGreClientId(): ?string
     {
-        return $this->modo_produccion 
-            ? $this->gre_client_id_produccion 
+        return $this->greUsesProduction()
+            ? $this->gre_client_id_produccion
             : $this->gre_client_id_beta;
     }
 
@@ -279,8 +279,8 @@ trait HasCompanyConfigurations
      */
     public function getGreClientSecret(): ?string
     {
-        return $this->modo_produccion 
-            ? $this->gre_client_secret_produccion 
+        return $this->greUsesProduction()
+            ? $this->gre_client_secret_produccion
             : $this->gre_client_secret_beta;
     }
 
@@ -324,7 +324,7 @@ trait HasCompanyConfigurations
      */
     public function setGreCredentials(array $credentials, string $environment = null): void
     {
-        $environment = $environment ?? ($this->modo_produccion ? 'produccion' : 'beta');
+        $environment = $environment ?? ($this->greUsesProduction() ? 'produccion' : 'beta');
         
         $updateData = [];
         
@@ -359,7 +359,7 @@ trait HasCompanyConfigurations
      */
     public function clearGreCredentials(string $environment = null): void
     {
-        $environment = $environment ?? ($this->modo_produccion ? 'produccion' : 'beta');
+        $environment = $environment ?? ($this->greUsesProduction() ? 'produccion' : 'beta');
         
         $updateData = [
             "gre_client_id_{$environment}" => null,
@@ -404,8 +404,11 @@ trait HasCompanyConfigurations
      * factura/boleta: OAuth2 contra api-cpe, no usuario/clave SOL sobre WSDL.
      * Fuente: Manual de Servicios Web - Plataforma Nueva GRE (SUNAT).
      */
-    public const GRE_API_ENDPOINT_BETA = 'https://api-cpe-beta.sunat.gob.pe/v1/';
-    public const GRE_API_ENDPOINT_PRODUCCION = 'https://api-cpe.sunat.gob.pe/v1/';
+    // Sin barra final: Greenter concatena el path directamente y una barra
+    // de más produce '/v1//contribuyente/...', que el gateway puede redirigir
+    // perdiendo la cabecera Authorization.
+    public const GRE_API_ENDPOINT_BETA = 'https://api-cpe-beta.sunat.gob.pe/v1';
+    public const GRE_API_ENDPOINT_PRODUCCION = 'https://api-cpe.sunat.gob.pe/v1';
 
     /**
      * Host de autenticación OAuth2. Es un dominio DISTINTO al de envío
@@ -421,6 +424,18 @@ trait HasCompanyConfigurations
     public function getGreAuthEndpoint(): string
     {
         return self::GRE_AUTH_ENDPOINT;
+    }
+
+    /**
+     * ¿Las guías de remisión van a producción?
+     *
+     * Independiente de `modo_produccion`: una empresa puede facturar en
+     * producción mientras prueba sus guías en beta, que es el estado normal
+     * al activar la función.
+     */
+    public function greUsesProduction(): bool
+    {
+        return (bool) ($this->gre_modo_produccion ?? false);
     }
 
     /**
@@ -451,7 +466,9 @@ trait HasCompanyConfigurations
         // ambiente. Antes se devolvía cadena vacía, lo que obligaba a
         // hardcodear la URL en el servicio de emisión.
         if ($serviceType === 'guias_remision') {
-            $endpoint = $this->modo_produccion
+            // Ambiente PROPIO de la GRE, no el de factura/boleta.
+            $greProduccion = $this->greUsesProduction();
+            $endpoint = $greProduccion
                 ? self::GRE_API_ENDPOINT_PRODUCCION
                 : self::GRE_API_ENDPOINT_BETA;
 
@@ -459,7 +476,7 @@ trait HasCompanyConfigurations
                 'endpoint' => $endpoint,
                 'api_endpoint' => $endpoint,
                 'wsdl' => '',
-                'timeout' => $this->modo_produccion ? 45 : 30,
+                'timeout' => $greProduccion ? 45 : 30,
             ];
         }
 
@@ -717,14 +734,14 @@ trait HasCompanyConfigurations
                 ],
                 'guias_remision' => [
                     'beta' => [
-                        'endpoint' => 'https://gre-test.nubefact.com/v1',
-                        'api_endpoint' => 'https://api-cpe-beta.sunat.gob.pe/v1/',
+                        'endpoint' => self::GRE_API_ENDPOINT_BETA,
+                        'api_endpoint' => self::GRE_API_ENDPOINT_BETA,
                         'wsdl' => 'https://e-beta.sunat.gob.pe/ol-ti-itcpgre-beta/billService?wsdl',
                         'timeout' => 30,
                     ],
                     'produccion' => [
-                        'endpoint' => 'https://api-cpe.sunat.gob.pe/v1/',
-                        'api_endpoint' => 'https://api-cpe.sunat.gob.pe/v1/',
+                        'endpoint' => self::GRE_API_ENDPOINT_PRODUCCION,
+                        'api_endpoint' => self::GRE_API_ENDPOINT_PRODUCCION,
                         'wsdl' => 'https://e-guiaremision.sunat.gob.pe/ol-ti-itemision-guia-gem/billService?wsdl',
                         'timeout' => 45,
                     ]
@@ -893,8 +910,8 @@ trait HasCompanyConfigurations
                 'environment' => 'beta',
                 'service_type' => 'guias_remision',
                 'config_data' => [
-                    'endpoint' => 'https://gre-test.nubefact.com/v1',
-                    'api_endpoint' => 'https://api-cpe-beta.sunat.gob.pe/v1/',
+                    'endpoint' => self::GRE_API_ENDPOINT_BETA,
+                    'api_endpoint' => self::GRE_API_ENDPOINT_BETA,
                     'wsdl' => 'https://e-beta.sunat.gob.pe/ol-ti-itcpgre-beta/billService?wsdl',
                     'timeout' => 30,
                 ],
@@ -918,8 +935,8 @@ trait HasCompanyConfigurations
                 'environment' => 'produccion',
                 'service_type' => 'guias_remision',
                 'config_data' => [
-                    'endpoint' => 'https://api-cpe.sunat.gob.pe/v1/',
-                    'api_endpoint' => 'https://api-cpe.sunat.gob.pe/v1/',
+                    'endpoint' => self::GRE_API_ENDPOINT_PRODUCCION,
+                    'api_endpoint' => self::GRE_API_ENDPOINT_PRODUCCION,
                     'wsdl' => 'https://e-guiaremision.sunat.gob.pe/ol-ti-itemision-guia-gem/billService?wsdl',
                     'timeout' => 45,
                 ],

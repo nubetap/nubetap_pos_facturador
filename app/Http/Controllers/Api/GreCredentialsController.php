@@ -45,7 +45,7 @@ class GreCredentialsController extends Controller
                 'data' => [
                     'company_id' => $company->id,
                     'company_name' => $company->razon_social,
-                    'modo_actual' => $company->modo_produccion ? 'produccion' : 'beta',
+                    'modo_actual' => $company->greUsesProduction() ? 'produccion' : 'beta',
                     'credenciales_configuradas' => $company->hasGreCredentials(),
                     'credenciales' => $credentials,
                 ]
@@ -161,7 +161,7 @@ class GreCredentialsController extends Controller
             }
 
             $credentials = $company->getGreCredentials();
-            $environment = $company->modo_produccion ? 'produccion' : 'beta';
+            $environment = $company->greUsesProduction() ? 'produccion' : 'beta';
 
             // Completitud: los cinco datos son necesarios para el OAuth2.
             $faltantes = [];
