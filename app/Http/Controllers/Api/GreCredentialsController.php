@@ -23,21 +23,23 @@ class GreCredentialsController extends Controller
         try {
             $currentCredentials = $company->getGreCredentials();
             
+            // El RUC y el usuario SOL son los de la facturación: se informan
+            // para que el panel muestre con qué usuario se emitirá, pero no
+            // se editan desde aquí.
             $credentials = [
                 'beta' => [
                     'client_id' => $company->gre_client_id_beta ? '***' . substr($company->gre_client_id_beta, -4) : null,
                     'client_secret' => $company->gre_client_secret_beta ? '***' . substr($company->gre_client_secret_beta, -4) : null,
-                    'ruc_proveedor' => $company->gre_ruc_proveedor,
-                    'usuario_sol' => $company->gre_usuario_sol,
-                    'clave_sol' => $company->gre_clave_sol ? '***' . substr($company->gre_clave_sol, -2) : null,
                 ],
                 'produccion' => [
                     'client_id' => $company->gre_client_id_produccion ? '***' . substr($company->gre_client_id_produccion, -4) : null,
                     'client_secret' => $company->gre_client_secret_produccion ? '***' . substr($company->gre_client_secret_produccion, -4) : null,
-                    'ruc_proveedor' => $company->gre_ruc_proveedor,
-                    'usuario_sol' => $company->gre_usuario_sol,
-                    'clave_sol' => $company->gre_clave_sol ? '***' . substr($company->gre_clave_sol, -2) : null,
-                ]
+                ],
+                'sol' => [
+                    'ruc' => $company->ruc,
+                    'usuario_sol' => $company->usuario_sol,
+                    'configurado' => !empty($company->usuario_sol) && !empty($company->clave_sol),
+                ],
             ];
 
             return response()->json([
@@ -72,19 +74,13 @@ class GreCredentialsController extends Controller
         try {
             $esProduccion = $request->input('environment') === 'produccion';
 
-            // En producción los cinco datos son obligatorios: sin RUC,
-            // usuario y clave SOL no se puede obtener el token OAuth2 y la
-            // guía fallaría recién al emitirse. En beta se permiten parciales
-            // para poder ir cargando la configuración.
-            $reglaSol = $esProduccion ? 'required' : 'nullable';
-
+            // Lo único propio de GRE son client_id y client_secret, que se
+            // generan aparte en el menú SOL. El RUC y el usuario/clave SOL
+            // son los mismos de la facturación: no se piden dos veces.
             $validated = $request->validate([
                 'environment' => 'required|in:beta,produccion',
                 'client_id' => 'required|string|max:255',
                 'client_secret' => 'required|string|max:255',
-                'ruc_proveedor' => $reglaSol . '|string|size:11|regex:/^\d{11}$/',
-                'usuario_sol' => $reglaSol . '|string|max:100',
-                'clave_sol' => $reglaSol . '|string|max:100',
             ]);
 
             // Las credenciales de demo de SUNAT llevan el prefijo "test-".
@@ -103,9 +99,6 @@ class GreCredentialsController extends Controller
             $credentials = [
                 'client_id' => $validated['client_id'],
                 'client_secret' => $validated['client_secret'],
-                'ruc_proveedor' => $validated['ruc_proveedor'] ?? null,
-                'usuario_sol' => $validated['usuario_sol'] ?? null,
-                'clave_sol' => $validated['clave_sol'] ?? null,
             ];
 
             // Configurar credenciales usando el nuevo método
@@ -163,24 +156,25 @@ class GreCredentialsController extends Controller
             $credentials = $company->getGreCredentials();
             $environment = $company->greUsesProduction() ? 'produccion' : 'beta';
 
-            // Completitud: los cinco datos son necesarios para el OAuth2.
-            $faltantes = [];
-            foreach ([
-                'client_id' => 'Client ID',
-                'client_secret' => 'Client Secret',
-                'ruc_proveedor' => 'RUC',
-                'usuario_sol' => 'Usuario SOL',
-                'clave_sol' => 'Clave SOL',
-            ] as $campo => $etiqueta) {
-                if (empty($credentials[$campo])) {
-                    $faltantes[] = $etiqueta;
-                }
-            }
-
-            if (!empty($faltantes)) {
+            // El OAuth2 necesita client_id/secret (propios de GRE) más el
+            // RUC y el usuario/clave SOL, que son los de la facturación.
+            $faltanGre = empty($credentials['client_id'])
+                || empty($credentials['client_secret']);
+            if ($faltanGre) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Faltan datos para conectar con SUNAT: ' . implode(', ', $faltantes),
+                    'message' => 'Faltan el Client ID y el Client Secret de GRE.',
+                ], 400);
+            }
+
+            $faltaSol = empty($credentials['ruc_proveedor'])
+                || empty($credentials['usuario_sol'])
+                || empty($credentials['clave_sol']);
+            if ($faltaSol) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'La empresa no tiene configurado el usuario y clave SOL '
+                        . 'de facturación, que son los que usa la guía de remisión.',
                 ], 400);
             }
 
@@ -283,13 +277,12 @@ class GreCredentialsController extends Controller
             // de beta: cargarlas hacía que las guías se firmaran con la
             // identidad del contribuyente de pruebas. Cada empresa genera las
             // suyas en su Clave SOL, no hay defaults posibles.
+            // Solo lo propio de GRE: el usuario y clave SOL son los de la
+            // facturación y no se configuran por ambiente.
             $defaults = [
                 'beta' => [
                     'client_id' => '',
                     'client_secret' => '',
-                    'ruc_proveedor' => '',
-                    'usuario_sol' => '',
-                    'clave_sol' => '',
                     'endpoints' => [
                         'auth' => \App\Models\Company::GRE_AUTH_ENDPOINT,
                         'api' => \App\Models\Company::GRE_API_ENDPOINT_BETA,
@@ -298,9 +291,6 @@ class GreCredentialsController extends Controller
                 'produccion' => [
                     'client_id' => '',
                     'client_secret' => '',
-                    'ruc_proveedor' => '',
-                    'usuario_sol' => '',
-                    'clave_sol' => '',
                     'endpoints' => [
                         'auth' => \App\Models\Company::GRE_AUTH_ENDPOINT,
                         'api' => \App\Models\Company::GRE_API_ENDPOINT_PRODUCCION,

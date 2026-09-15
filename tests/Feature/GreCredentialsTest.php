@@ -34,17 +34,18 @@ test('puede obtener credenciales GRE de una empresa', function () {
                     'beta' => [
                         'client_id',
                         'client_secret',
-                        'ruc_proveedor',
-                        'usuario_sol',
-                        'clave_sol',
                     ],
                     'produccion' => [
                         'client_id',
                         'client_secret',
-                        'ruc_proveedor',
+                    ],
+                    // El usuario SOL es el de la facturación: se informa,
+                    // no se edita por ambiente.
+                    'sol' => [
+                        'ruc',
                         'usuario_sol',
-                        'clave_sol',
-                    ]
+                        'configurado',
+                    ],
                 ]
             ]
         ]);
@@ -58,9 +59,6 @@ test('puede actualizar credenciales GRE para ambiente beta', function () {
         'environment' => 'beta',
         'client_id' => 'test-nueva-client-id',
         'client_secret' => 'test-nuevo-secret-123456',
-        'ruc_proveedor' => '20987654321',
-        'usuario_sol' => 'NUEVOUSUARIO',
-        'clave_sol' => 'nuevaclave123',
     ];
 
     $response = $this->actingAs($this->user)
@@ -75,22 +73,24 @@ test('puede actualizar credenciales GRE para ambiente beta', function () {
     // Verificar que se guardaron en la base de datos
     $this->company->refresh();
     expect($this->company->getGreClientId())->toBe('test-nueva-client-id');
-    expect($this->company->getGreRucProveedor())->toBe('20987654321');
+    // El RUC de la guía es el del contribuyente, no uno guardado aparte.
+    expect($this->company->getGreRucProveedor())->toBe($this->company->ruc);
 });
 
 test('valida credenciales requeridas para ambiente producción', function () {
+    // El usuario y clave SOL ya no se piden aquí (son los de facturación),
+    // así que lo obligatorio es el par propio de GRE.
     $credenciales = [
         'environment' => 'produccion',
         'client_id' => 'prod-client-id',
-        'client_secret' => 'prod-secret-123456',
-        // Faltan campos obligatorios para producción
+        // Falta client_secret
     ];
 
     $response = $this->actingAs($this->user)
         ->putJson("/api/v1/companies/{$this->company->id}/gre-credentials", $credenciales);
 
     $response->assertStatus(422)
-        ->assertJsonValidationErrors(['ruc_proveedor', 'usuario_sol', 'clave_sol']);
+        ->assertJsonValidationErrors(['client_secret']);
 });
 
 test('no permite usar credenciales de beta en producción', function () {
@@ -98,9 +98,6 @@ test('no permite usar credenciales de beta en producción', function () {
         'environment' => 'produccion',
         'client_id' => 'test-85e5b0ae-255c-4891-a595-0b98c65c9854', // Credencial de beta
         'client_secret' => 'prod-secret-123456',
-        'ruc_proveedor' => '20123456789',
-        'usuario_sol' => 'PRODUSER',
-        'clave_sol' => 'prodpass123',
     ];
 
     $response = $this->actingAs($this->user)
@@ -118,9 +115,6 @@ test('el test de conexión rechaza credenciales inválidas contra SUNAT', functi
     $this->company->setGreCredentials([
         'client_id' => 'test-client-id',
         'client_secret' => 'test-secret-123456',
-        'ruc_proveedor' => '20123456789',
-        'usuario_sol' => 'TESTUSER',
-        'clave_sol' => 'testpass123',
     ], 'beta');
 
     $response = $this->actingAs($this->user)
@@ -130,22 +124,21 @@ test('el test de conexión rechaza credenciales inválidas contra SUNAT', functi
     $response->assertJson(['success' => false]);
 });
 
-test('el test de conexión exige los cinco datos del OAuth2', function () {
-    // Sin usuario ni clave SOL no se puede pedir token: debe avisarse antes
-    // de salir a la red, indicando qué falta.
+test('el test de conexión avisa si falta el usuario SOL de facturación', function () {
+    // La guía usa el usuario SOL de la facturación. Si la empresa no lo tiene
+    // configurado, no se puede pedir el token: debe avisarse antes de salir a
+    // la red, señalando que el dato faltante es el de facturación.
     $this->company->setGreCredentials([
         'client_id' => 'test-client-id',
         'client_secret' => 'test-secret-123456',
-        'ruc_proveedor' => '20123456789',
-        'usuario_sol' => '',
-        'clave_sol' => '',
     ], 'beta');
+    $this->company->update(['usuario_sol' => '', 'clave_sol' => '']);
 
     $response = $this->actingAs($this->user)
         ->postJson("/api/v1/companies/{$this->company->id}/gre-credentials/test-connection");
 
     $response->assertStatus(400)->assertJson(['success' => false]);
-    expect($response->json('message'))->toContain('Usuario SOL');
+    expect($response->json('message'))->toContain('SOL');
 });
 
 test('falla test de conexión sin credenciales configuradas', function () {
@@ -164,9 +157,6 @@ test('puede limpiar credenciales para un ambiente', function () {
     $this->company->setGreCredentials([
         'client_id' => 'test-client-id',
         'client_secret' => 'test-secret',
-        'ruc_proveedor' => '20123456789',
-        'usuario_sol' => 'TEST',
-        'clave_sol' => 'test123',
     ], 'beta');
 
     $response = $this->actingAs($this->user)
@@ -190,9 +180,6 @@ test('puede copiar credenciales entre ambientes', function () {
     $this->company->setGreCredentials([
         'client_id' => 'beta-client-id',
         'client_secret' => 'beta-secret',
-        'ruc_proveedor' => '20123456789',
-        'usuario_sol' => 'BETAUSER',
-        'clave_sol' => 'betapass',
     ], 'beta');
 
     $response = $this->actingAs($this->user)
@@ -236,9 +223,6 @@ test('puede obtener valores por defecto para un ambiente', function () {
                 'credentials_default' => [
                     'client_id',
                     'client_secret',
-                    'ruc_proveedor',
-                    'usuario_sol',
-                    'clave_sol',
                 ],
                 'description'
             ]

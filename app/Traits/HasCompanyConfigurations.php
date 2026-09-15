@@ -285,27 +285,34 @@ trait HasCompanyConfigurations
     }
 
     /**
-     * Obtener RUC del proveedor GRE
+     * RUC del emisor de la guía.
+     *
+     * Es el mismo contribuyente que factura: no hay un "RUC de GRE" aparte.
      */
     public function getGreRucProveedor(): ?string
     {
-        return $this->gre_ruc_proveedor ?? $this->ruc;
+        return $this->ruc;
     }
 
     /**
-     * Obtener Usuario SOL para GRE
+     * Usuario SOL para GRE.
+     *
+     * El MISMO que usa la facturación. SUNAT no exige un usuario distinto
+     * para guías; lo que cambia es el mecanismo de autenticación (OAuth2 en
+     * vez de SOAP), no la identidad. El usuario sí debe tener habilitado el
+     * alcance "GRE Envío de Comprobantes" al generar las credenciales de API.
      */
     public function getGreUsuarioSol(): ?string
     {
-        return $this->gre_usuario_sol ?? $this->usuario_sol;
+        return $this->usuario_sol;
     }
 
     /**
-     * Obtener Clave SOL para GRE
+     * Clave SOL para GRE: la misma de la facturación.
      */
     public function getGreClaveSol(): ?string
     {
-        return $this->gre_clave_sol ?? $this->clave_sol;
+        return $this->clave_sol;
     }
 
     /**
@@ -336,18 +343,9 @@ trait HasCompanyConfigurations
             $updateData["gre_client_secret_{$environment}"] = $credentials['client_secret'];
         }
         
-        if (isset($credentials['ruc_proveedor'])) {
-            $updateData['gre_ruc_proveedor'] = $credentials['ruc_proveedor'];
-        }
-        
-        if (isset($credentials['usuario_sol'])) {
-            $updateData['gre_usuario_sol'] = $credentials['usuario_sol'];
-        }
-        
-        if (isset($credentials['clave_sol'])) {
-            $updateData['gre_clave_sol'] = $credentials['clave_sol'];
-        }
-        
+        // El RUC y el usuario/clave SOL NO se guardan aparte: la guía usa
+        // los de la facturación (ver getGreUsuarioSol y compañía).
+
         if (!empty($updateData)) {
             $this->update($updateData);
             $this->clearConfigCache();
