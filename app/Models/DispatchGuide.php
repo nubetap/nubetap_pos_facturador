@@ -15,6 +15,7 @@ class DispatchGuide extends Model
         'branch_id',
         'client_id', // Destinatario
         'tipo_documento',
+        'modo_produccion',
         'serie',
         'correlativo',
         'numero_completo',
@@ -72,6 +73,7 @@ class DispatchGuide extends Model
         'transportista' => 'array',
         'vehiculo' => 'array',
         'indicadores' => 'array',
+        'modo_produccion' => 'boolean',
         'detalles' => 'array',
         'documentos_relacionados' => 'array',
         'datos_adicionales' => 'array',

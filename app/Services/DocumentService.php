@@ -2262,9 +2262,12 @@ class DocumentService
 
                 // Protección contra duplicados: reenviar la misma guía no
                 // debe crear otra.
+                // Mismo número en beta y en producción son guías
+                // distintas: el ambiente forma parte de la identidad.
                 $existing = DispatchGuide::where('company_id', $company->id)
                     ->where('serie', $serie)
                     ->where('correlativo', $correlativo)
+                    ->where('modo_produccion', $company->greUsesProduction())
                     ->first();
 
                 if ($existing) {
@@ -2296,6 +2299,7 @@ class DocumentService
                 'branch_id' => $branch->id,
                 'client_id' => $destinatario->id,
                 'tipo_documento' => '09',
+                'modo_produccion' => $company->greUsesProduction(),
                 'serie' => $serie,
                 'correlativo' => $correlativo,
                 'fecha_emision' => $data['fecha_emision'],
