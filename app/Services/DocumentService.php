@@ -2303,6 +2303,9 @@ class DocumentService
                 'serie' => $serie,
                 'correlativo' => $correlativo,
                 'fecha_emision' => $data['fecha_emision'],
+                // Sin esto el bloque que arma los AdditionalDoc de Greenter
+                // nunca encontraba nada que enviar.
+                'documentos_relacionados' => $data['documentos_relacionados'] ?? null,
                 'version' => $data['version'] ?? '2022',
                 
                 // Datos del envío
@@ -2352,6 +2355,7 @@ class DocumentService
                 'vehiculo' => isset($data['vehiculo_placa']) || isset($data['conductor_tipo_doc']) ? [
                     'placa' => $data['vehiculo_placa'] ?? null,
                     'placa_principal' => $data['vehiculo_placa'] ?? null,
+                    'autorizacion' => $data['vehiculo_autorizacion'] ?? null,
                     'placa_secundaria' => $data['vehiculo_placa_secundaria'] ?? null,
                     // Lista completa de secundarios: el request ya los valida
                     // (StoreDispatchGuideRequest:76) pero antes se perdían,
@@ -2468,7 +2472,13 @@ class DocumentService
                 ->setTipoDoc('09')
                 ->setSerie($guide->serie)
                 ->setCorrelativo($guide->correlativo)
-                ->setFechaEmision($guide->fecha_emision);
+                // Campo 2 del Anexo 12: hora de emisión. La columna es date y
+                // llegaba 00:00:00; si se emite hoy, va la hora real.
+                ->setFechaEmision(
+                    $guide->fecha_emision->isToday()
+                        ? now()
+                        : $guide->fecha_emision->copy()->startOfDay()
+                );
             
             // Empresa (usar datos reales de la guía)
             $company = new \Greenter\Model\Company\Company();
@@ -2608,6 +2618,10 @@ class DocumentService
                         $placaPrincipal = $guide->vehiculo['placa_principal'] ?? $guide->vehiculo['placa'];
                         $vehiculo = new \Greenter\Model\Despatch\Vehicle();
                         $vehiculo->setPlaca($placaPrincipal);
+                        // Campo 46 del Anexo 12: TUCE / habilitación vehicular.
+                        if (!empty($guide->vehiculo['autorizacion'])) {
+                            $vehiculo->setNroAutorizacion($guide->vehiculo['autorizacion']);
+                        }
                         
                         // Vehículos secundarios. SUNAT admite varios; antes
                         // solo viajaba 'placa_secundaria' y el resto se perdía.
@@ -2681,8 +2695,10 @@ class DocumentService
                 foreach ($guide->documentos_relacionados as $doc) {
                     $relDoc = new \Greenter\Model\Despatch\AdditionalDoc();
                     $relDoc->setTipo($doc['tipo'])
-                        ->setTipoDesc($doc['tipo_desc'])
-                        ->setNro($doc['numero']);
+                        ->setTipoDesc($doc['tipo_desc'] ?? null)
+                        ->setNro($doc['numero'])
+                        // Campo 52 del Anexo 12: RUC del emisor del documento.
+                        ->setEmisor($doc['emisor'] ?? $guide->company->ruc);
                     $relDocs[] = $relDoc;
                 }
                 $despatch->setAddDocs($relDocs);
@@ -2739,6 +2755,8 @@ class DocumentService
             if ($result->isSuccess()) {
                 // Obtener XML generado
                 $xml = $api->getLastXml();
+                // Valor resumen: obligatorio en la representación impresa.
+                $hash = $this->extractHashFromXml($xml);
                 $ticket = $result->getTicket();
                 
                 Log::info("Envío exitoso", ['ticket' => $ticket]);
@@ -2751,6 +2769,7 @@ class DocumentService
                 $guide->update([
                     'xml_path' => $xmlPath,
                     'xml_url' => $xmlUrl,
+                    'hash' => $hash,
                     'estado_sunat' => 'PROCESANDO',
                     'ticket' => $ticket,
                     'respuesta_sunat' => json_encode(['success' => true, 'ticket' => $ticket])

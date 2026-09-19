@@ -40,6 +40,7 @@
         'document' => $document,
         'qr_code' => $qr_code ?? null,
         'hash' => $hash ?? null,
+        'leyenda' => $leyenda ?? null,
         'tipo_documento_nombre' => 'GUÍA DE REMISIÓN ELECTRÓNICA'
     ])
 @endsection

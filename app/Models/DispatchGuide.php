@@ -10,6 +10,9 @@ class DispatchGuide extends Model
 {
     use HasFactory;
 
+    /** Django lee el valor resumen como codigo_hash, igual que en facturas. */
+    protected $appends = ['codigo_hash'];
+
     protected $fillable = [
         'company_id',
         'branch_id',
@@ -48,6 +51,7 @@ class DispatchGuide extends Model
         
         // Archivos generados
         'xml_path',
+        'hash',
         'xml_url',
         'cdr_path',
         'cdr_url',
@@ -97,6 +101,11 @@ class DispatchGuide extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function getCodigoHashAttribute(): ?string
+    {
+        return $this->hash;
     }
 
     public function getTipoDocumentoNameAttribute(): string

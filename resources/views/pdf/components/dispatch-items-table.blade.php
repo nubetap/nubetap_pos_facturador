@@ -15,7 +15,6 @@
                 <th>DESCRIPCIÓN</th>
                 <th>UNIDAD</th>
                 <th>CANTIDAD</th>
-                <th>PESO (KG)</th>
             </tr>
         </thead>
         <tbody>
@@ -27,7 +26,6 @@
                     <td>{{ $detalle['descripcion'] ?? '' }}</td>
                     <td>{{ $detalle['unidad'] ?? 'NIU' }}</td>
                     <td>{{ number_format($detalle['cantidad'] ?? 0, 2) }}</td>
-                    <td>{{ number_format($detalle['peso'] ?? 0, 3) }}</td>
                 </tr>
             @endforeach
 
@@ -52,7 +50,6 @@
                 <th class="col-codigo">Cód.</th>
                 <th class="col-descripcion">Descripción</th>
                 <th class="col-cantidad">Cant.</th>
-                <th class="col-peso">Peso</th>
             </tr>
         </thead>
         <tbody>
@@ -61,7 +58,6 @@
                     <td class="text-center">{{ $detalle['codigo'] ?? '-' }}</td>
                     <td class="text-left">{{ Str::limit($detalle['descripcion'] ?? '', 20) }}</td>
                     <td class="text-center">{{ number_format($detalle['cantidad'] ?? 0, 2) }}</td>
-                    <td class="text-right">{{ number_format($detalle['peso'] ?? 0, 3) }}</td>
                 </tr>
             @endforeach
         </tbody>

@@ -358,7 +358,34 @@ class PdfService
             'motivo_traslado' => $dispatchGuide->getMotivoTrasladoNameAttribute(),
             'modalidad_traslado' => $dispatchGuide->getModalidadTrasladoNameAttribute(),
             'peso_total_formatted' => number_format($dispatchGuide->peso_total, 3) . ' ' . $dispatchGuide->und_peso_total,
+            // Representación impresa (RS 123-2022): QR y valor resumen son
+            // obligatorios; antes el PDF de la guía salía sin ninguno.
+            'qr_code' => $this->generateQRCode($this->generateDispatchQRData($dispatchGuide)),
+            'hash' => $dispatchGuide->hash ?? '',
+            'leyenda' => 'Representación impresa de la Guía de Remisión Electrónica',
+            'documentos_relacionados' => is_array($dispatchGuide->documentos_relacionados)
+                ? $dispatchGuide->documentos_relacionados
+                : [],
         ];
+    }
+
+    /**
+     * Texto del QR de la guía. Mismo esquema de tubería que los CPE
+     * (RUC|tipo|serie|número|…|fecha|tipo doc destinatario|n° doc|hash),
+     * sin importes porque la guía no los declara. SUNAT no valida el
+     * contenido del QR: sirve para que el fiscalizador identifique
+     * RUC, serie y número.
+     */
+    protected function generateDispatchQRData($guide): string
+    {
+        $ruc = $guide->company->ruc ?? '';
+        $fecha = $guide->fecha_emision ? $guide->fecha_emision->format('Y-m-d') : date('Y-m-d');
+        $dest = $guide->destinatario;
+        $tipoDocDest = $dest->tipo_documento ?? '6';
+        $numDocDest = $dest->numero_documento ?? '';
+        $hash = $guide->hash ?? '';
+
+        return "{$ruc}|09|{$guide->serie}|{$guide->correlativo}|||{$fecha}|{$tipoDocDest}|{$numDocDest}|{$hash}|";
     }
 
     protected function calculateInvoiceTotals($invoice): array

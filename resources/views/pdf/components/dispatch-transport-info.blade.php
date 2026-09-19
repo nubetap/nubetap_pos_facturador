@@ -38,11 +38,13 @@
     <div class="addresses-info">
         <div class="address-section">
             <h4>PUNTO DE PARTIDA</h4>
-            <p>{{ $document->partida['direccion'] ?? $document->partida_direccion ?? 'N/E' }}</p>
+            {{-- Campos 33-34: dirección y ubigeo --}}
+            <p>{{ $document->partida['ubigeo'] ?? $document->partida_ubigeo ?? '' }} - {{ $document->partida['direccion'] ?? $document->partida_direccion ?? 'N/E' }}</p>
         </div>
         <div class="address-section">
             <h4>PUNTO DE LLEGADA</h4>
-            <p>{{ $document->llegada['direccion'] ?? $document->llegada_direccion ?? 'N/E' }}</p>
+            {{-- Campos 36-37 --}}
+            <p>{{ $document->llegada['ubigeo'] ?? $document->llegada_ubigeo ?? '' }} - {{ $document->llegada['direccion'] ?? $document->llegada_direccion ?? 'N/E' }}</p>
         </div>
     </div>
 
@@ -67,9 +69,20 @@
         </div>
         <div class="conductor-info">
             <div><strong>Conductor:</strong> {{ ($conductor['nombres'] ?? $document->conductor_nombres ?? 'NO') }} {{ ($conductor['apellidos'] ?? $document->conductor_apellidos ?? 'ESPECIFICADO') }}</div>
-            <div><strong>DNI:</strong> {{ $conductor['num_doc'] ?? $document->conductor_num_doc ?? 'N/A' }} | <strong>Licencia:</strong> {{ $conductor['licencia'] ?? $document->conductor_licencia ?? 'N/A' }}</div>
+            @php $tipoDocChofer = ['1' => 'DNI', '4' => 'C.E.', '7' => 'PASAPORTE'][$conductor['tipo_doc'] ?? '1'] ?? 'DOC'; @endphp
+            <div><strong>{{ $tipoDocChofer }}:</strong> {{ $conductor['num_doc'] ?? $document->conductor_num_doc ?? 'N/A' }} | <strong>Licencia:</strong> {{ $conductor['licencia'] ?? $document->conductor_licencia ?? 'N/A' }}</div>
             @if(!empty($vehiculo['placa_principal'] ?? $document->vehiculo_placa ?? ''))
-            <div><strong>Vehículo:</strong> {{ $vehiculo['placa_principal'] ?? $document->vehiculo_placa }}</div>
+            <div><strong>Vehículo:</strong> {{ $vehiculo['placa_principal'] ?? $document->vehiculo_placa }}
+                @if(!empty($vehiculo['autorizacion'])) | <strong>Autorización:</strong> {{ $vehiculo['autorizacion'] }}@endif
+            </div>
+            @endif
+            @php
+                $secundarias = [];
+                foreach (($vehiculo['secundarios'] ?? []) as $sec) { $p = is_array($sec) ? ($sec['placa'] ?? null) : $sec; if ($p) $secundarias[] = $p; }
+                if (empty($secundarias) && !empty($vehiculo['placa_secundaria'])) $secundarias[] = $vehiculo['placa_secundaria'];
+            @endphp
+            @if(!empty($secundarias))
+            <div><strong>Placas secundarias:</strong> {{ implode(', ', $secundarias) }}</div>
             @endif
         </div>
     </div>
@@ -91,6 +104,18 @@
         </div>
     </div>
     @endif
+    @endif
+
+    {{-- Documentos relacionados (campos 50-52 del Anexo 12) --}}
+    @if(!empty($documentos_relacionados))
+    <div class="transport-details-section">
+        <div class="transport-details-header">
+            <h4>DOCUMENTOS RELACIONADOS</h4>
+        </div>
+        @foreach($documentos_relacionados as $rel)
+        <div>{{ $rel['tipo_desc'] ?? ('Tipo ' . ($rel['tipo'] ?? '')) }}: <strong>{{ $rel['numero'] ?? '' }}</strong></div>
+        @endforeach
+    </div>
     @endif
 @else
     {{-- Ticket Transport Info --}}

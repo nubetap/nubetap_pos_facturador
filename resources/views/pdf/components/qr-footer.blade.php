@@ -9,15 +9,20 @@
                  style="width: {{ $format === 'a4' ? '80px' : '60px' }}; height: {{ $format === 'a4' ? '80px' : '60px' }};">
         </div>
         <div class="qr-info">
-            Representación impresa del comprobante electrónico
+            {{ $leyenda ?? 'Representación impresa del comprobante electrónico' }}
         </div>
     </div>
 @endif
 
 @if(isset($hash) || true)
     <div class="footer">
+        @if(!empty($leyenda))
+        <div>{{ $leyenda }}</div>
+        <div>Resolución de Superintendencia N.° 000123-2022/SUNAT</div>
+        @else
         <div>Autorizado mediante Resolución de Superintendencia Nº 097-2012/SUNAT</div>
         <div>Representación impresa del Comprobante de Pago Electrónico</div>
+        @endif
         
         @if(isset($hash) && $hash)
             <div class="hash-section">

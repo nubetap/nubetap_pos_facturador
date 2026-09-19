@@ -36,6 +36,13 @@ class StoreDispatchGuideRequest extends FormRequest
             // Solo aplica a importaciones (motivo 08). Exigirlo siempre
             // obligaba a inventar un valor en traslados normales.
             'num_bultos' => 'nullable|integer|min:1',
+
+            // Documentos que respaldan el traslado (catálogo 61): la factura o
+            // boleta de la venta, la DAM de una importación, etc.
+            'documentos_relacionados' => 'nullable|array',
+            'documentos_relacionados.*.tipo' => 'required|string|max:2',
+            'documentos_relacionados.*.tipo_desc' => 'nullable|string|max:60',
+            'documentos_relacionados.*.numero' => 'required|string|max:20',
             
             // Direcciones - Soporte para formato nested y plano
             'partida' => 'nullable|array',
@@ -77,6 +84,8 @@ class StoreDispatchGuideRequest extends FormRequest
             
             // Vehículo principal  
             'vehiculo_placa' => 'nullable|string|max:10',
+            // Campo 46 del Anexo 12: TUCE / habilitación vehicular (opcional).
+            'vehiculo_autorizacion' => 'nullable|string|max:30',
             
             // Vehículos secundarios
             'vehiculos_secundarios' => 'nullable|array',

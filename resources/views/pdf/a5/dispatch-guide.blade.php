@@ -5,7 +5,7 @@
     @include('pdf.components.header', [
         'company' => $company, 
         'document' => $document, 
-        'tipo_documento_nombre' => 'GUÍA DE REMISIÓN ELECTRÓNICA',
+        'tipo_documento_nombre' => 'GUÍA DE REMISIÓN ELECTRÓNICA REMITENTE',
         'fecha_emision' => $fecha_emision,
         'format' => 'a5'
     ])
@@ -25,6 +25,7 @@
         'motivo_traslado' => $motivo_traslado ?? 'VENTA',
         'modalidad_traslado' => $modalidad_traslado ?? 'TRANSPORTE PRIVADO',
         'peso_total_formatted' => $peso_total_formatted ?? '0.000 KGM',
+        'documentos_relacionados' => $documentos_relacionados ?? [],
         'format' => 'a5'
     ])
 
@@ -44,8 +45,9 @@
 
     {{-- Footer --}}
     @include('pdf.components.qr-footer', [
-        'qr_code' => null,
+        'qr_code' => $qr_code ?? null,
         'hash' => $hash ?? null,
+        'leyenda' => $leyenda ?? null,
         'format' => 'a5'
     ])
 @endsection
