@@ -183,3 +183,70 @@ test('el IGV por linea no cambia con total_esperado: 10.5% sigue siendo 10.5%', 
     expect((float) $detalle['igv'])->toBe(1.90);
     expect((float) Boleta::first()->mto_imp_venta)->toBe(20.00);
 });
+
+test('reenvío sin total_esperado conserva el total cobrado guardado al crear (boleta)', function () {
+    // Regresión Cafe Abel Vilcas (2026-09-29): Django refresca el documento
+    // con un PUT justo antes de enviarlo a SUNAT y ese PUT no traía
+    // total_esperado. El facturador recalculaba por línea y declaraba 45.01
+    // aunque el POST lo hubiera dejado en 45.00.
+    $company = Company::factory()->create();
+    $branch = Branch::factory()->create(['company_id' => $company->id]);
+
+    $this->postJson('/api/v1/boletas', boletaPayload($company, $branch, ['total_esperado' => 45.00]))
+        ->assertStatus(201);
+    $boleta = Boleta::first();
+
+    $payload = boletaPayload($company, $branch, ['force_update' => true]);
+    unset($payload['company_id'], $payload['branch_id'], $payload['serie'], $payload['correlativo']);
+    $this->putJson("/api/v1/boletas/{$boleta->id}", $payload)->assertStatus(200);
+
+    $boleta->refresh();
+    expect((float) $boleta->mto_imp_venta)->toBe(45.00);
+    expect((float) $boleta->redondeo)->toBe(-0.01);
+});
+
+test('reenvío sin total_esperado conserva el total cobrado guardado al crear (factura)', function () {
+    $company = Company::factory()->create();
+    $branch = Branch::factory()->create(['company_id' => $company->id]);
+
+    $data = boletaPayload($company, $branch, [
+        'serie' => 'F001',
+        'total_esperado' => 45.00,
+        'forma_pago_tipo' => 'Contado',
+        'client' => [
+            'tipo_documento' => '6',
+            'numero_documento' => '20616202082',
+            'razon_social' => 'FABRIAPPS S.A.C.',
+        ],
+    ]);
+    $this->postJson('/api/v1/invoices', $data)->assertStatus(201);
+    $invoice = \App\Models\Invoice::first();
+    expect((float) $invoice->mto_imp_venta)->toBe(45.00);
+
+    $payload = $data;
+    unset($payload['total_esperado'], $payload['company_id'], $payload['branch_id'], $payload['serie'], $payload['correlativo']);
+    $payload['force_update'] = true;
+    $this->putJson("/api/v1/invoices/{$invoice->id}", $payload)->assertStatus(200);
+
+    $invoice->refresh();
+    expect((float) $invoice->mto_imp_venta)->toBe(45.00);
+    expect((float) $invoice->redondeo)->toBe(-0.01);
+});
+
+it('línea exonerada con descuento declara el precio unitario ya descontado (SUNAT 3270)', function () {
+    $service = app(\App\Services\DocumentService::class);
+    $calc = new ReflectionMethod($service, 'calculateTotals');
+    $calc->setAccessible(true);
+    $detalles = [[
+        'cantidad' => 2, 'mto_valor_unitario' => 15, 'porcentaje_igv' => 0, 'tip_afe_igv' => '20',
+        'descuentos' => [['cod_tipo' => '00', 'monto_base' => 30, 'factor' => 0.125, 'monto' => 3.75]],
+    ], [
+        'cantidad' => 1, 'mto_valor_unitario' => 6, 'porcentaje_igv' => 0, 'tip_afe_igv' => '30',
+    ]];
+    $totals = $calc->invokeArgs($service, [&$detalles, ['total_esperado' => 32.25]]);
+
+    expect($detalles[0]['mto_precio_unitario'])->toEqual(13.12)   // 26.25 / 2
+        ->and($detalles[1]['mto_precio_unitario'])->toEqual(6)     // sin descuento: intacto
+        ->and(round($totals['mto_imp_venta'], 2))->toEqual(32.25)
+        ->and($totals['mto_oper_exoneradas'])->toEqual(26.25);
+});

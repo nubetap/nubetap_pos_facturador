@@ -194,7 +194,10 @@ class DocumentService
                 'descuentos' => $data['descuentos'] ?? [],
                 'anticipos' => $data['anticipos'] ?? [],
                 'redondeo' => $data['redondeo'] ?? 0,
-                'total_esperado' => $data['total_esperado'] ?? null,
+                // Sin total_esperado en el PUT se usa el guardado al crear: recalcular
+                // sin él declaraba a SUNAT la suma por línea (65.96) y no lo cobrado (66.00).
+                'total_esperado' => $data['total_esperado']
+                    ?? (is_array($invoice->datos_adicionales) ? ($invoice->datos_adicionales['_total_esperado'] ?? null) : null),
             ];
 
             // Procesar detalles según tipo de operación si se están actualizando
@@ -321,7 +324,10 @@ class DocumentService
                 'descuentos' => $data['descuentos'] ?? [],
                 'anticipos' => [],
                 'redondeo' => 0,
-                'total_esperado' => $data['total_esperado'] ?? null,
+                // Sin total_esperado en el PUT se usa el guardado al crear: recalcular
+                // sin él declaraba a SUNAT la suma por línea (65.96) y no lo cobrado (66.00).
+                'total_esperado' => $data['total_esperado']
+                    ?? (is_array($boleta->datos_adicionales) ? ($boleta->datos_adicionales['_total_esperado'] ?? null) : null),
             ];
 
             // Procesar detalles según tipo de operación si se están actualizando
@@ -1213,6 +1219,12 @@ class DocumentService
 
                 $mtoPrecioUnitario = round($precioConImpuestos, 2, PHP_ROUND_HALF_DOWN);
                 $totalImpuestos = $igv + $isc + $icbper;
+            } elseif (in_array($tipAfeIgv, ['20', '30', '40'])
+                && ($descuentosAfectanBase + $descuentosNoAfectanBase) > 0 && $cantidad > 0) {
+                // SUNAT 3270: sin IGV el precio de venta unitario también debe ir
+                // con el descuento aplicado. Con el precio de lista, un descuento
+                // de más de 1.00 por unidad rechazaba la factura exonerada/inafecta.
+                $mtoPrecioUnitario = round($mtoValorVenta / $cantidad, 2, PHP_ROUND_HALF_DOWN);
             }
 
             // Manejar operaciones gratuitas (EXCLUIR '17' que es IVAP, NO gratuito)
