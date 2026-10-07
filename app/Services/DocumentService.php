@@ -801,6 +801,23 @@ class DocumentService
                 ]);
             }
 
+            // CDR en la misma respuesta, si ValidaPSE lo incluye: su consulta
+            // posterior (/api/cpe/consultar) falla con "[SUNAT HTTP] Internal
+            // Server Error" incluso para boletas aceptadas, así que este es
+            // el único momento confiable para guardarlo.
+            $raw = is_array($response['raw'] ?? null) ? $response['raw'] : [];
+            foreach (['cdr', 'cdr_zip', 'cdrZip', 'cdr_base64', 'xml_cdr', 'cdr_xml'] as $cdrKey) {
+                $cdrContent = is_string($raw[$cdrKey] ?? null)
+                    ? base64_decode($raw[$cdrKey], strict: true)
+                    : false;
+                if ($cdrContent !== false && $cdrContent !== '') {
+                    $cdrPath = $this->fileService->saveCdr($document, $cdrContent);
+                    $document->cdr_path = $cdrPath;
+                    $document->cdr_url = $this->storageService->getDocumentUrl($cdrPath);
+                    break;
+                }
+            }
+
             // Estado: ValidaPSE confirmó recepción → ACEPTADO (CDR puede recuperarse después).
             $document->estado_sunat = 'ACEPTADO';
             $document->respuesta_sunat = json_encode([
@@ -808,6 +825,11 @@ class DocumentService
                 'estado' => $response['estado'] ?? null,
                 'mensaje' => $response['mensaje'] ?? null,
                 'external_id' => $response['external_id'] ?? null,
+                // Respuesta completa sin los binarios, para auditar qué dijo SUNAT.
+                'raw' => array_map(
+                    fn ($v) => is_string($v) && strlen($v) > 500 ? '[' . strlen($v) . ' bytes]' : $v,
+                    $raw,
+                ),
             ]);
 
             $document->save();
@@ -835,6 +857,8 @@ class DocumentService
                 'provider' => 'validapse',
                 'http_status' => $e->httpStatus,
                 'message' => $e->userMessage,
+                // Cuerpo devuelto por ValidaPSE (code SUNAT incluido) para auditar.
+                'body' => $e->context['body'] ?? null,
             ]);
             $document->save();
 
