@@ -1062,6 +1062,64 @@ class DocumentService
     }
 
     /**
+     * Siguiente número de nota de crédito para la serie, único en toda la empresa.
+     *
+     * SUNAT solo exige que RUC + tipo + serie + número no se repita: no ata la
+     * serie a un local. Varias sucursales emiten con la misma serie (BC01/FC01),
+     * pero cada una guarda su propio contador; una sucursal nueva arrancaba en 1
+     * y chocaba con el número que otra ya había emitido. Se continúa desde el
+     * mayor número emitido por la empresa en esa serie, bajo un candado por
+     * empresa + tipo + serie para que dos sucursales a la vez no tomen el mismo.
+     */
+    protected function nextCreditNoteCorrelative(Branch $branch, string $serie): string
+    {
+        if (DB::getDriverName() === 'pgsql') {
+            DB::select('SELECT pg_advisory_xact_lock(?, ?)', [
+                $branch->company_id,
+                crc32('07:' . $serie) & 0x7FFFFFFF,
+            ]);
+        }
+
+        $correlative = $branch->correlatives()
+            ->where('tipo_documento', '07')
+            ->where('serie', $serie)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$correlative) {
+            $correlative = $branch->correlatives()->create([
+                'tipo_documento' => '07',
+                'serie' => $serie,
+                'correlativo_actual' => 0,
+            ]);
+        }
+
+        $numberExpression = DB::getDriverName() === 'pgsql'
+            ? "CAST(NULLIF(regexp_replace(correlativo, '[^0-9]', '', 'g'), '') AS BIGINT)"
+            : 'CAST(correlativo AS INTEGER)';
+        $maxIssued = (int) CreditNote::where('company_id', $branch->company_id)
+            ->where('serie', $serie)
+            ->max(DB::raw($numberExpression));
+
+        $next = max((int) $correlative->correlativo_actual, $maxIssued) + 1;
+
+        if ($maxIssued > (int) $correlative->correlativo_actual) {
+            Log::info('Correlativo de nota de crédito continúa la numeración de la empresa', [
+                'branch_id' => $branch->id,
+                'serie' => $serie,
+                'contador_sucursal' => (int) $correlative->correlativo_actual,
+                'mayor_emitido_empresa' => $maxIssued,
+                'siguiente' => $next,
+            ]);
+        }
+
+        $correlative->correlativo_actual = $next;
+        $correlative->save();
+
+        return str_pad((string) $next, 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
      * Sincroniza la tabla correlatives de PHP con el correlativo recibido desde Django.
      * Esto mantiene la consistencia entre ambos sistemas.
      * Solo actualiza si el correlativo recibido es mayor al actual.
@@ -2020,7 +2078,7 @@ class DocumentService
 
                 $this->syncCorrelativeFromExternal($branch, '07', $serie, $correlativoNumero);
             } else {
-                $correlativo = $branch->getNextCorrelative('07', $serie);
+                $correlativo = $this->nextCreditNoteCorrelative($branch, $serie);
             }
 
             // Procesar detalles y calcular totales
