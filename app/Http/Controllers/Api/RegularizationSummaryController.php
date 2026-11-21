@@ -47,11 +47,15 @@ class RegularizationSummaryController extends Controller
             $result = $this->service->send($summary);
 
             if (!$result['success']) {
-                $error = $result['error'] ?? null;
+                [$code, $message] = self::errorInfo($result['error'] ?? null);
+                Log::warning('[REGULARIZACION] SUNAT no recibió el resumen', [
+                    'summary' => $summary->numero_completo, 'code' => $code, 'message' => $message,
+                ]);
+                $summary->update(['respuesta_sunat' => json_encode(['code' => $code, 'message' => $message])]);
                 return response()->json([
                     'success' => false,
-                    'message' => is_object($error) ? ($error->message ?? 'Error al enviar') : (string) $error,
-                    'error_code' => is_object($error) ? (string) ($error->code ?? '') : '',
+                    'message' => $message ?: 'Error al enviar',
+                    'error_code' => $code,
                     'data' => $this->payload($summary->fresh()),
                 ], 422);
             }
@@ -81,6 +85,17 @@ class RegularizationSummaryController extends Controller
         } catch (Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
         }
+    }
+
+    /** [código, mensaje] de un error de Greenter (métodos) o de un objeto simple (propiedades). */
+    public static function errorInfo(mixed $error): array
+    {
+        if (is_object($error)) {
+            $code = method_exists($error, 'getCode') ? $error->getCode() : ($error->code ?? '');
+            $message = method_exists($error, 'getMessage') ? $error->getMessage() : ($error->message ?? '');
+            return [(string) $code, (string) $message];
+        }
+        return ['', (string) $error];
     }
 
     protected function payload(DailySummary $summary): array
