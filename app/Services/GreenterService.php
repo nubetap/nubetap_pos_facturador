@@ -1069,12 +1069,14 @@ class GreenterService
     {
         try {
             $result = $this->see->getStatus($ticket);
-            
+
             return [
                 'success' => $result->isSuccess(),
                 'cdr_response' => $result->isSuccess() ? $result->getCdrResponse() : null,
                 'cdr_zip' => $result->isSuccess() ? $result->getCdrZip() : null,
-                'error' => $result->isSuccess() ? null : $result->getError()
+                'error' => $result->isSuccess() ? null : $result->getError(),
+                // 0 = procesado, 98 = en proceso, 99 = procesado con errores.
+                'code' => $result->getCode(),
             ];
         } catch (Exception $e) {
             return [

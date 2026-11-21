@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\BoletaController;
+use App\Http\Controllers\Api\RegularizationSummaryController;
 use App\Http\Controllers\Api\DailySummaryController;
 use App\Http\Controllers\Api\CreditNoteController;
 use App\Http\Controllers\Api\DebitNoteController;
@@ -223,6 +224,12 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
 
         // TEMPORAL: migración batch stage→prod (debe estar antes de rutas /{id})
         Route::post('/force-resend-batch', [BoletaController::class, 'forceResendBatch']);
+
+        // Regularización: boletas que nunca llegaron a SUNAT, por resumen diario.
+        Route::post('/regularization-summaries', [RegularizationSummaryController::class, 'store']);
+        Route::post('/regularization-summaries/{id}/send', [RegularizationSummaryController::class, 'send'])
+            ->middleware('expected.env:daily-summary');
+        Route::post('/regularization-summaries/{id}/status', [RegularizationSummaryController::class, 'status']);
 
         Route::get('/{id}', [BoletaController::class, 'show']);
         Route::put('/{id}', [BoletaController::class, 'update']);
