@@ -33,6 +33,7 @@ class CompanyController extends Controller
                     'id', 'ruc', 'razon_social', 'nombre_comercial', 
                     'direccion', 'distrito', 'provincia', 'departamento',
                     'email', 'telefono', 'modo_produccion', 'activo',
+                    'cpe_provider', 'gre_modo_produccion',
                     'created_at', 'updated_at'
                 ])
                 ->get();
