@@ -81,7 +81,9 @@ class CompanyObserver
         $source = $viaHttp ? ($request->method() . ' /' . ltrim($request->path(), '/')) : 'console';
 
         foreach ($changes as $field => $new) {
-            CompanyEnvironmentChange::create([
+            // Nunca bloquear la edición de la empresa por el rastro.
+            try {
+                CompanyEnvironmentChange::create([
                 'company_id' => $company->id,
                 'field' => $field,
                 'old_value' => CompanyEnvironmentChange::stringify($company->getOriginal($field)),
@@ -89,7 +91,14 @@ class CompanyObserver
                 'source' => mb_substr($source, 0, 191),
                 'user_id' => auth()->id(),
                 'ip' => $viaHttp ? $request->ip() : null,
-            ]);
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('No se pudo registrar el cambio de ambiente', [
+                    'company_id' => $company->id,
+                    'field' => $field,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
     }
 
