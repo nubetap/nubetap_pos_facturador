@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\Company;
+use App\Models\CompanyEnvironmentChange;
 use Illuminate\Support\Facades\Log;
 
 class CompanyObserver
@@ -57,6 +58,37 @@ class CompanyObserver
                 'old_status' => $company->getOriginal('activo') ? 'ACTIVA' : 'INACTIVA',
                 'new_status' => $company->activo ? 'ACTIVA' : 'INACTIVA',
                 'modified_by' => auth()->user()->email ?? 'system'
+            ]);
+        }
+    }
+
+    /**
+     * Rastro persistente de cada cambio de ambiente (modo_produccion,
+     * cpe_provider, gre_modo_produccion): quién, cuándo y desde dónde.
+     * Los logs caducan; esta tabla no. Se lee en
+     * GET /api/v1/companies/{company}/environment-changes.
+     */
+    public function updated(Company $company): void
+    {
+        $changes = array_intersect_key($company->getChanges(), array_flip(CompanyEnvironmentChange::WATCHED));
+        if (!$changes) {
+            return;
+        }
+
+        // Petición HTTP con ruta resuelta = API/panel; si no, comando o job.
+        $request = request();
+        $viaHttp = $request->route() !== null;
+        $source = $viaHttp ? ($request->method() . ' /' . ltrim($request->path(), '/')) : 'console';
+
+        foreach ($changes as $field => $new) {
+            CompanyEnvironmentChange::create([
+                'company_id' => $company->id,
+                'field' => $field,
+                'old_value' => CompanyEnvironmentChange::stringify($company->getOriginal($field)),
+                'new_value' => CompanyEnvironmentChange::stringify($company->getAttribute($field)),
+                'source' => mb_substr($source, 0, 191),
+                'user_id' => auth()->id(),
+                'ip' => $viaHttp ? $request->ip() : null,
             ]);
         }
     }

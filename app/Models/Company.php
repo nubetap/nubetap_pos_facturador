@@ -147,6 +147,11 @@ class Company extends Model
         return $this->modo_produccion ? $this->endpoint_produccion : $this->endpoint_beta;
     }
 
+    public function environmentChanges(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(CompanyEnvironmentChange::class)->latest('created_at');
+    }
+
     public function scopeActive($query)
     {
         return $query->where('activo', true);

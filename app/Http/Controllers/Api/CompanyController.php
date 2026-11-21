@@ -203,6 +203,52 @@ class CompanyController extends Controller
     /**
      * Cambiar modo de producción
      */
+    /**
+     * Historial de cambios de ambiente (modo_produccion, cpe_provider,
+     * gre_modo_produccion). Filtros: company_id, since (ISO 8601).
+     * Nubetap lo consulta para alertar en el backoffice.
+     */
+    public function environmentChanges(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'company_id' => 'nullable|integer',
+            'since' => 'nullable|date',
+            'limit' => 'nullable|integer|min:1|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Errores de validación',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $changes = \App\Models\CompanyEnvironmentChange::query()
+            ->with('company:id,ruc,razon_social')
+            ->when($request->filled('company_id'), fn ($q) => $q->where('company_id', $request->integer('company_id')))
+            ->when($request->filled('since'), fn ($q) => $q->where('created_at', '>=', \Carbon\Carbon::parse($request->input('since'))))
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->limit($request->integer('limit', 100))
+            ->get()
+            ->map(fn ($c) => [
+                'id' => $c->id,
+                'company_id' => $c->company_id,
+                'ruc' => $c->company?->ruc,
+                'razon_social' => $c->company?->razon_social,
+                'field' => $c->field,
+                'old_value' => $c->old_value,
+                'new_value' => $c->new_value,
+                'source' => $c->source,
+                'user_id' => $c->user_id,
+                'ip' => $c->ip,
+                'created_at' => $c->created_at?->toIso8601String(),
+            ]);
+
+        return response()->json(['success' => true, 'data' => $changes]);
+    }
+
     public function toggleProductionMode(Request $request, Company $company): JsonResponse
     {
         try {

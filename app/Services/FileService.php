@@ -42,7 +42,7 @@ class FileService
         $date = Carbon::parse($document->fecha_emision);
         $dateFolder = $date->format('dmY'); // Formato: 02092025
         
-        $fileName = $document->numero_completo;
+        $fileName = $this->documentFileName($document);
         
         // Obtener tipo de comprobante
         $tipoComprobante = $this->getDocumentTypeName($document);
@@ -65,6 +65,28 @@ class FileService
         }
         
         return "{$directory}/{$prefix}{$fileName}.{$extension}";
+    }
+
+    /**
+     * Nombre base del archivo: RUC del emisor + número del comprobante.
+     *
+     * El RUC es obligatorio: sin él, dos empresas con la misma serie y número
+     * emitidos el mismo día compartían ruta y se pisaban el XML, el CDR y el
+     * PDF. Las comunicaciones de baja no tienen numero_completo: se nombran
+     * por su identificador (RA-AAAAMMDD-N).
+     *
+     * Nunca lanza: se llama después de que SUNAT aceptó y un error aquí
+     * perdería el estado. Si faltara un dato, el nombre sigue siendo único.
+     */
+    protected function documentFileName($document): string
+    {
+        $numero = $document->numero_completo
+            ?? $document->identificador
+            ?? (class_basename($document) . '-' . $document->getKey());
+
+        $ruc = $document->company?->ruc ?: ('EMP' . $document->company_id);
+
+        return "{$ruc}-{$numero}";
     }
 
     protected function getDocumentTypeName($document): string

@@ -22,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Registrar middleware aliases
         $middleware->alias([
             'company.active' => \App\Http\Middleware\EnsureCompanyIsActive::class,
+            'expected.env' => \App\Http\Middleware\EnsureExpectedEnvironment::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -120,6 +120,7 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
     Route::apiResource('companies', CompanyController::class);
     Route::post('/companies/{company}/activate', [CompanyController::class, 'activate']);
     Route::post('/companies/{company}/toggle-production', [CompanyController::class, 'toggleProductionMode']);
+    Route::get('/environment-changes', [CompanyController::class, 'environmentChanges']);
 
     // Configuraciones de empresas
     Route::prefix('companies/{company_id}/config')->group(function () {
@@ -204,10 +205,10 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::post('/{id}/sign-xml', [InvoiceController::class, 'signXml'])
             ->name('api.v1.invoices.sign-xml');
         Route::post('/{id}/send-sunat', [InvoiceController::class, 'sendToSunat'])
-            ->middleware('throttle:sunat-send')
+            ->middleware(['throttle:sunat-send', 'expected.env:invoice'])
             ->name('api.v1.invoices.send-sunat');
         Route::post('/{id}/send-sunat-async', [InvoiceController::class, 'sendToSunatAsync'])
-            ->middleware('throttle:sunat-send')
+            ->middleware(['throttle:sunat-send', 'expected.env:invoice'])
             ->name('api.v1.invoices.send-sunat-async');
         Route::get('/{id}/download-xml', [InvoiceController::class, 'downloadXml'])->name('api.v1.invoices.download-xml');
         Route::get('/{id}/download-cdr', [InvoiceController::class, 'downloadCdr'])->name('api.v1.invoices.download-cdr');
@@ -228,7 +229,7 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::patch('/{id}', [BoletaController::class, 'update']);
         Route::post('/{id}/sign-xml', [BoletaController::class, 'signXml']);
         Route::post('/{id}/send-sunat', [BoletaController::class, 'sendToSunat'])
-            ->middleware('throttle:sunat-send');
+            ->middleware(['throttle:sunat-send', 'expected.env:boleta']);
         // Recuperación de CDR vía ValidaPSE (sin throttle sunat-send: es una
         // consulta a ValidaPSE, no un envío a SUNAT).
         Route::post('/{id}/validapse-cdr', [BoletaController::class, 'recoverValidapseCdr']);
@@ -240,7 +241,8 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         // Funciones de resumen diario desde boletas
         Route::get('/pending-for-summary', [BoletaController::class, 'getBoletsasPendingForSummary']);
         Route::post('/create-daily-summary', [BoletaController::class, 'createDailySummaryFromDate']);
-        Route::post('/summary/{id}/send-sunat', [BoletaController::class, 'sendSummaryToSunat']);
+        Route::post('/summary/{id}/send-sunat', [BoletaController::class, 'sendSummaryToSunat'])
+            ->middleware('expected.env:daily-summary');
         Route::post('/summary/{id}/check-status', [BoletaController::class, 'checkSummaryStatus']);
     });
 
@@ -249,7 +251,8 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::get('/', [DailySummaryController::class, 'index']);
         Route::post('/', [DailySummaryController::class, 'store']);
         Route::get('/{id}', [DailySummaryController::class, 'show']);
-        Route::post('/{id}/send-sunat', [DailySummaryController::class, 'sendToSunat']);
+        Route::post('/{id}/send-sunat', [DailySummaryController::class, 'sendToSunat'])
+            ->middleware('expected.env:daily-summary');
         Route::post('/{id}/check-status', [DailySummaryController::class, 'checkStatus']);
         Route::get('/{id}/download-xml', [DailySummaryController::class, 'downloadXml']);
         Route::get('/{id}/download-cdr', [DailySummaryController::class, 'downloadCdr']);
@@ -267,7 +270,7 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::post('/', [CreditNoteController::class, 'store']);
         Route::get('/{id}', [CreditNoteController::class, 'show']);
         Route::post('/{id}/send-sunat', [CreditNoteController::class, 'sendToSunat'])
-            ->middleware('throttle:sunat-send');
+            ->middleware(['throttle:sunat-send', 'expected.env:credit-note']);
         Route::get('/{id}/download-xml', [CreditNoteController::class, 'downloadXml']);
         Route::get('/{id}/download-cdr', [CreditNoteController::class, 'downloadCdr']);
         Route::get('/{id}/download-pdf', [CreditNoteController::class, 'downloadPdf']);
@@ -283,7 +286,7 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::post('/', [DebitNoteController::class, 'store']);
         Route::get('/{id}', [DebitNoteController::class, 'show']);
         Route::post('/{id}/send-sunat', [DebitNoteController::class, 'sendToSunat'])
-            ->middleware('throttle:sunat-send');
+            ->middleware(['throttle:sunat-send', 'expected.env:debit-note']);
         Route::get('/{id}/download-xml', [DebitNoteController::class, 'downloadXml']);
         Route::get('/{id}/download-cdr', [DebitNoteController::class, 'downloadCdr']);
         Route::get('/{id}/download-pdf', [DebitNoteController::class, 'downloadPdf']);
@@ -298,7 +301,8 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::get('/', [RetentionController::class, 'index']);
         Route::post('/', [RetentionController::class, 'store']);
         Route::get('/{id}', [RetentionController::class, 'show']);
-        Route::post('/{id}/send-sunat', [RetentionController::class, 'sendToSunat']);
+        Route::post('/{id}/send-sunat', [RetentionController::class, 'sendToSunat'])
+            ->middleware('expected.env:retention');
         Route::get('/{id}/download-xml', [RetentionController::class, 'downloadXml']);
         Route::get('/{id}/download-cdr', [RetentionController::class, 'downloadCdr']);
         Route::get('/{id}/download-pdf', [RetentionController::class, 'downloadPdf']);
@@ -311,7 +315,8 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'throttle:api'])->group(functio
         Route::post('/', [VoidedDocumentController::class, 'store']);
         Route::get('/available-documents', [VoidedDocumentController::class, 'getDocumentsForVoiding']);
         Route::get('/{id}', [VoidedDocumentController::class, 'show']);
-        Route::post('/{id}/send-sunat', [VoidedDocumentController::class, 'sendToSunat']);
+        Route::post('/{id}/send-sunat', [VoidedDocumentController::class, 'sendToSunat'])
+            ->middleware('expected.env:voided');
         Route::post('/{id}/check-status', [VoidedDocumentController::class, 'checkStatus']);
         Route::get('/{id}/download-xml', [VoidedDocumentController::class, 'downloadXml']);
         Route::get('/{id}/download-cdr', [VoidedDocumentController::class, 'downloadCdr']);
